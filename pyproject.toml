@@ -1,0 +1,14 @@
+[project]
+name = "stochastic-programming-library"
+version = "0.1.0"
+description = "A graph-first authoring and staged-realization model for stochastic programs"
+readme = "README.md"
+authors = [
+    { name = "Utkarsh Priyam" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
