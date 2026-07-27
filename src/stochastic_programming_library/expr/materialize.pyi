@@ -1,32 +1,36 @@
 from dataclasses import dataclass
 from typing import Iterable
 
-from ..rng import PlateCoordinate, Seed
-from .base import RandomVariable
-from .hashing import ResolvedGraphHashes
-from .meta import ConcreteValue, Phase, Plate, PlateLayout, PlateSizes
-from .nodes import DistributionNode
+from ..rng import Seed
+from .meta import ConcreteValue, Phase, PlateSizes
+from .nodes import RandomVariable
 
 @dataclass(frozen=True, slots=True)
-class MaterializeContext:
-    seed: Seed
-    plate_sizes: PlateSizes
-    cleared_phases: frozenset[Phase]
-    lifted_layout: PlateLayout
-    hashes: ResolvedGraphHashes
-
-    def with_added_plates(self, *plates: Plate) -> MaterializeContext: ...
-    def clears(self, phase: Phase) -> bool: ...
-    def seed_for(
+class SamplingCheckpoint:
+    @staticmethod
+    def _wrap(
+        root: RandomVariable,
+        plate_sizes: PlateSizes,
+    ) -> SamplingCheckpoint: ...
+    @property
+    def pending_phases(self) -> frozenset[Phase]: ...
+    @property
+    def is_fully_materialized(self) -> bool: ...
+    def structurally_equal(self, other: SamplingCheckpoint) -> bool: ...
+    def stochastically_equal(self, other: SamplingCheckpoint) -> bool: ...
+    def materialize(
         self,
-        node: DistributionNode,
-        coordinates: tuple[PlateCoordinate, ...],
-    ) -> Seed: ...
-
-def materialize_node(
-    node: RandomVariable,
-    context: MaterializeContext,
-) -> RandomVariable: ...
+        *,
+        seed: Seed | None = ...,
+        plate_sizes: PlateSizes | None = ...,
+        phases: Iterable[Phase] | None = ...,
+    ) -> SamplingCheckpoint: ...
+    def realize(
+        self,
+        *,
+        seed: Seed | None = ...,
+        plate_sizes: PlateSizes | None = ...,
+    ) -> ConcreteValue: ...
 
 def materialize(
     root: RandomVariable,
@@ -34,8 +38,7 @@ def materialize(
     seed: Seed | None = ...,
     plate_sizes: PlateSizes | None = ...,
     phases: Iterable[Phase] | None = ...,
-) -> RandomVariable: ...
-
+) -> SamplingCheckpoint: ...
 def realize(
     root: RandomVariable,
     *,

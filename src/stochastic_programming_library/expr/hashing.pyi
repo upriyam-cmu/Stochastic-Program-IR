@@ -1,16 +1,13 @@
 from dataclasses import dataclass
-from typing import Mapping
-
 from ..rng import HashDigest, ResolvedRngKey
-from .base import RandomVariable
-from .nodes import DistributionNode
+from .nodes import RandomDistributionNode, RandomVariable
 
 @dataclass(frozen=True, slots=True)
 class StochasticInputEdge:
     # `consumer=None` represents the synthetic output consumer. Ordinals are
     # assigned left-to-right within each named distribution parameter or output.
-    source: DistributionNode
-    consumer: DistributionNode | None
+    source: RandomDistributionNode
+    consumer: RandomDistributionNode | None
     parameter: str
     ordinal: int
 
@@ -20,18 +17,18 @@ class StochasticInputEdge:
 @dataclass(frozen=True, slots=True)
 class StochasticProjection:
     root: RandomVariable
-    nodes: tuple[DistributionNode, ...]
+    nodes: tuple[RandomDistributionNode, ...]
     edges: tuple[StochasticInputEdge, ...]
 
     @classmethod
     def from_root(cls, root: RandomVariable) -> StochasticProjection: ...
     def dependencies_of(
         self,
-        node: DistributionNode,
+        node: RandomDistributionNode,
     ) -> tuple[StochasticInputEdge, ...]: ...
     def consumers_of(
         self,
-        node: DistributionNode,
+        node: RandomDistributionNode,
     ) -> tuple[StochasticInputEdge, ...]: ...
 
 @dataclass(frozen=True, slots=True)
@@ -57,19 +54,13 @@ class NodeHashParts:
 class ResolvedGraphHashes:
     projection: StochasticProjection
 
-    def for_node(self, node: DistributionNode) -> NodeHashParts: ...
-    def rng_key_for(self, node: DistributionNode) -> ResolvedRngKey: ...
+    def for_node(self, node: RandomDistributionNode) -> NodeHashParts: ...
+    def rng_key_for(self, node: RandomDistributionNode) -> ResolvedRngKey: ...
 
 def stochastic_frontier(
     expr: RandomVariable,
-) -> tuple[DistributionNode, ...]: ...
-
-def enumerate_stochastic_nodes(
-    projection: StochasticProjection,
-) -> Mapping[DistributionNode, NodeEnumeration]: ...
-
+) -> tuple[RandomDistributionNode, ...]: ...
 def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes: ...
-
 def stamp_resolved_rng_keys(
     root: RandomVariable,
     hashes: ResolvedGraphHashes,

@@ -1,0 +1,136 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+import numpy as np
+from typing_extensions import override
+
+from ..meta import DataType, ValueMeta, ValueSupport
+
+
+@dataclass(frozen=True, slots=True)
+class BinOpImpl(ABC):
+    def _remap_dtype(self, lhs: DataType, rhs: DataType) -> DataType:
+        # default: int unless float is present
+        return max(lhs, rhs, DataType.INT)
+
+    @abstractmethod
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport: ...
+
+    def resolve_meta(self, lhs: ValueMeta, rhs: ValueMeta) -> ValueMeta:
+        return ValueMeta(
+            dtype=self._remap_dtype(lhs.dtype, rhs.dtype),
+            support=self._remap_support(lhs.support, rhs.support),
+        )
+
+    @abstractmethod
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray: ...
+
+
+def _assert_positive_or_negative(lhs: ValueSupport, rhs: ValueSupport):
+    assert {lhs, rhs} <= {ValueSupport.POSITIVE_BRANCH, ValueSupport.NEGATIVE_BRANCH}, (
+        f"{(lhs, rhs) = }"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AddOp(BinOpImpl):
+    @override
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+        if lhs == ValueSupport.REAL or rhs == ValueSupport.REAL:
+            return ValueSupport.REAL
+
+        lhs = lhs if lhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+        rhs = rhs if rhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+
+        _assert_positive_or_negative(lhs, rhs)
+        return lhs if lhs == rhs else ValueSupport.REAL
+
+    @override
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        return lhs + rhs
+
+
+@dataclass(frozen=True, slots=True)
+class SubtractOp(BinOpImpl):
+    @override
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+        if lhs == ValueSupport.REAL or rhs == ValueSupport.REAL:
+            return ValueSupport.REAL
+
+        lhs = lhs if lhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+        rhs = rhs if rhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+
+        _assert_positive_or_negative(lhs, rhs)
+        return lhs if lhs != rhs else ValueSupport.REAL
+
+    @override
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        return lhs - rhs
+
+
+@dataclass(frozen=True, slots=True)
+class MultiplyOp(BinOpImpl):
+    @override
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+        if lhs == ValueSupport.REAL or rhs == ValueSupport.REAL:
+            return ValueSupport.REAL
+
+        if lhs == ValueSupport.UNIT_INTERVAL:
+            return rhs
+        if rhs == ValueSupport.UNIT_INTERVAL:
+            return lhs
+
+        _assert_positive_or_negative(lhs, rhs)
+        return (
+            ValueSupport.POSITIVE_BRANCH if lhs == rhs else ValueSupport.NEGATIVE_BRANCH
+        )
+
+    @override
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        return lhs * rhs
+
+
+def _division_support_remap(lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+    if lhs == ValueSupport.REAL or rhs == ValueSupport.REAL:
+        return ValueSupport.REAL
+
+    lhs = lhs if lhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+    rhs = rhs if rhs != ValueSupport.UNIT_INTERVAL else ValueSupport.POSITIVE_BRANCH
+
+    _assert_positive_or_negative(lhs, rhs)
+    return ValueSupport.POSITIVE_BRANCH if lhs == rhs else ValueSupport.NEGATIVE_BRANCH
+
+
+@dataclass(frozen=True, slots=True)
+class TrueDivideOp(BinOpImpl):
+    @override
+    def _remap_dtype(self, lhs: DataType, rhs: DataType) -> DataType:
+        return DataType.FLOAT
+
+    @override
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+        return _division_support_remap(lhs, rhs)
+
+    @override
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        return lhs / rhs
+
+
+@dataclass(frozen=True, slots=True)
+class FloorDivideOp(BinOpImpl):
+    @override
+    def _remap_dtype(self, lhs: DataType, rhs: DataType) -> DataType:
+        return DataType.INT
+
+    @override
+    def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
+        return _division_support_remap(lhs, rhs)
+
+    @override
+    def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        # TODO this doesn't actually get the dtype correct
+        # when either array is a float type
+        return lhs // rhs
+
+
+# TODO implement, max, min, boolean ops, shifts?, power

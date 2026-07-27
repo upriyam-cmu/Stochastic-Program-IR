@@ -1,0 +1,17 @@
+# Historical monolithic node stub. Runtime node types now live in the
+# `expr.nodes` package and use inline annotations.
+from .nodes.base import (
+    Constant as Constant,
+    Dependency as Dependency,
+    ExprInput as ExprInput,
+    RandomVariable as RandomVariable,
+    as_random_variable as as_random_variable,
+)
+from .nodes.distr.base import RandomDistributionNode as RandomDistributionNode
+from .nodes.distr.normal import Gaussian as Gaussian
+from .nodes.distr.normal import Normal as Normal
+from .nodes.distr.normal import normal as normal
+from .nodes.ops import BinOpNode as BinOpNode
+from .nodes.ops import ReductionOpNode as ReductionOpNode
+from .nodes.ops import UnaryOpNode as UnaryOpNode
+from .nodes.shape import AddPlatesNode as AddPlatesNode
