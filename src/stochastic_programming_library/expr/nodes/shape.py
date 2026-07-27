@@ -1,5 +1,7 @@
+from collections.abc import Mapping
+from dataclasses import replace
 import numpy as np
-from typing_extensions import override
+from typing_extensions import Self, override
 
 from ...errors import MissingPlateSizeError
 from ..meta import ConcreteValue, Phase, PlateLayout, PlateSizes, ValueMeta
@@ -55,6 +57,13 @@ class AddPlatesNode(RandomVariable):
         return Dependency.wrap({"arg": self.arg})
 
     @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return replace(self, arg=dependencies["arg"])
+
+    @override
     def _compute_plate_layout(self) -> PlateLayout:
         return self.arg.plate_layout + self.added_plates
 
@@ -71,8 +80,12 @@ class AddPlatesNode(RandomVariable):
         return self.arg.value_meta
 
     @override
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue:
-        arg_val = self.arg.value(plate_sizes)
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
+        arg_val = dependencies["arg"]
         if not self.added_plates.plates:
             return arg_val
 

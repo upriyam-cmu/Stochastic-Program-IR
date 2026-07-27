@@ -1,10 +1,26 @@
+from collections.abc import Mapping
+from dataclasses import replace
 import numpy as np
-from typing_extensions import override
+from typing_extensions import Self, override
 
-from ....rng import RngKey
-from ...meta import DataType, Phase, PlateLayout, PlateSizes, ValueMeta, ValueSupport
+from ....rng import RngLabel
+from ...meta import (
+    ConcreteValue,
+    DataType,
+    Phase,
+    PlateLayout,
+    PlateSizes,
+    ValueMeta,
+    ValueSupport,
+)
 from ....phases import current_sampling_phase
-from ..base import Dependency, ExprInput, RandomVariable, as_random_variable, rv_impl
+from ..base import (
+    Dependency,
+    ExprInput,
+    RandomVariable,
+    as_random_variable,
+    rv_impl,
+)
 from .base import RandomDistributionNode
 
 
@@ -20,13 +36,14 @@ class Gaussian(RandomDistributionNode):
         mu: ExprInput,
         sigma: ExprInput,
         *,
-        rng_key: RngKey | None = None,
+        rng_label: RngLabel | None = None,
         phase_requirement: Phase = None,
     ) -> "Gaussian":
         return Gaussian(
             phase_requirement=phase_requirement,
-            rng_key=rng_key,
-            _resolved_rng_key=None,
+            rng_label=rng_label,
+            _node_entropy=None,
+            _sampling_seed=None,
             mu=as_random_variable(mu),
             sigma=as_random_variable(sigma),
         )
@@ -34,6 +51,17 @@ class Gaussian(RandomDistributionNode):
     @override
     def _compute_dependencies(self) -> tuple[Dependency, ...]:
         return Dependency.wrap({"mu": self.mu, "sigma": self.sigma})
+
+    @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return replace(
+            self,
+            mu=dependencies["mu"],
+            sigma=dependencies["sigma"],
+        )
 
     @override
     def _compute_plate_layout(self) -> PlateLayout:
@@ -60,13 +88,14 @@ class Gaussian(RandomDistributionNode):
     def _sample_value(
         self,
         rng: np.random.Generator,
+        dependencies: Mapping[str, ConcreteValue],
         output_layout: PlateLayout,
-        plate_sizes: PlateSizes | None = None,
+        plate_sizes: PlateSizes,
     ) -> np.ndarray:
         from ..shape import add_plates
 
-        mu = self.mu.value(plate_sizes)
-        sigma = self.sigma.value(plate_sizes)
+        mu = dependencies["mu"]
+        sigma = dependencies["sigma"]
         mu_data = add_plates(
             mu.data,
             old_layout=mu.layout,
@@ -88,12 +117,12 @@ def normal(
     mu: ExprInput,
     sigma: ExprInput,
     *,
-    rng_key: RngKey | None = None,
+    rng_label: RngLabel | None = None,
 ) -> Gaussian:
     return Gaussian.wrap(
         mu,
         sigma,
-        rng_key=rng_key,
+        rng_label=rng_label,
         phase_requirement=current_sampling_phase(),
     )
 

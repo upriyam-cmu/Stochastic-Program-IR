@@ -45,7 +45,7 @@ Plates describe **where independent multiplicity exists**. Phases describe **whe
 ### 2.4 Numeric isolation
 
 The graph layer owns graph traversal, dependency readiness, plate alignment,
-phase eligibility, RNG-key derivation, and graph rewriting. v0.1 uses NumPy for
+phase eligibility, RNG entropy derivation, and graph rewriting. v0.1 uses NumPy for
 concrete value propagation and distribution sampling; other array-library
 conversions occur outside the graph.
 
@@ -81,7 +81,7 @@ Every expression must expose:
 ```python
 expr.plates: frozenset[str]
 expr.plate_layout: PlateLayout
-expr.pending_phases: frozenset[str | None]
+expr.pending_phases: frozenset[str]
 ```
 
 `plates` is the semantic set used by validation. `plate_layout` also records the
@@ -113,19 +113,21 @@ Validation calls do not create nodes.
 v0.1 must specify these distributions:
 
 ```python
-Normal(mu, sigma, *, rng_key=None)
-Uniform(low, high, *, rng_key=None)
-Bernoulli(p, *, rng_key=None)
+Normal(mu, sigma, *, rng_label=None)
+Uniform(low, high, *, rng_label=None)
+Bernoulli(p, *, rng_label=None)
 ```
 
 Parameters accept expressions or scalar constants. A distribution's plates are the ordered union of its parameter plates plus any plates introduced around the expression through `add_plates`.
 
-`rng_key` is an optional stable, human-readable RNG address. Reusing an explicit
-key intentionally opts multiple distribution nodes into the same deterministic
-random stream. When omitted, materialization derives a key from the projected
-stochastic graph, including stochastic dependencies, direct stochastic
-consumers, structural input ordinals, and a canonical enumeration for otherwise
-symmetric nodes.
+`rng_label` is optional human-readable entropy mixed into a node's
+graph-derived entropy. It never replaces the graph hash and cannot opt two
+distinct nodes into a shared random stream. Shared randomness is represented by
+reusing the same distribution node.
+
+The graph contribution is derived from a stochastic-only projection containing
+stochastic dependencies, direct stochastic consumers, structural input
+ordinals, and a canonical enumeration for otherwise symmetric nodes.
 
 v0.1 must specify:
 
@@ -256,9 +258,12 @@ expr.materialize(
 `phases=None` means enable every phase still present in the reachable graph. An explicit iterable enables only those phases.
 
 Phase enabling is monotonic in the rewritten graph. If an enabled distribution
-is blocked by an unmaterialized dependency, its phase requirement is removed
-before the checkpoint is returned. A later materialization that clears the
-dependency samples that node without requiring its phase to be named again.
+is blocked by an unmaterialized dependency, the current materialization run
+seed is immediately mixed with its node entropy and stored as the node's final
+sampling seed. Its phase requirement is removed before the checkpoint is
+returned. A later materialization that clears the dependency samples that node
+using the already stored seed, without requiring its phase to be named again or
+consulting the later materialization's run seed.
 
 The rewrite must:
 
@@ -284,9 +289,15 @@ pending on a barrier.
 expr.realize(*, seed, plate_sizes=None) -> ConcreteValue
 ```
 
-`realize` enables all remaining phases, fully materializes the graph, verifies that no distribution node remains, and returns the root concrete value. A failure to reach a concrete root raises `UnrealizedGraphError`.
+`realize` enables all remaining phases, fully materializes the graph, verifies
+that no distribution node remains, and returns the root concrete value. A raw
+expression tree whose `has_value` property is already true may be evaluated
+directly without first creating a checkpoint. A failure to reach a concrete
+root raises `UnrealizedGraphError`.
 
-`value()` performs extraction only. It never samples and raises `UnrealizedGraphError` unless the root is already concrete.
+`value()` exists only on `SamplingCheckpoint`. It performs extraction only,
+never samples, and raises `UnrealizedGraphError` unless materialization has
+collapsed the checkpoint root to a constant.
 
 ### 9.3 Branching and repeatability
 
@@ -303,16 +314,53 @@ Different seeds intentionally resample remaining nodes. Reusing seed `20` must r
 
 ## 10. RNG addressing
 
-Materialization resolves one opaque RNG key per distribution node from:
+RNG addressing has three deliberately separate inputs:
 
-- the distribution's explicit `rng_key`, when present; or
-- its projected stochastic dependency hash, direct-consumer hash, structural
-  input ordinals, and symmetric-node enumeration.
+1. the projected graph-structure hash;
+2. an optional user-facing `rng_label`, mixed in as additional entropy;
+3. one run seed selected when a materialization invocation begins.
 
-Sampling then mixes that resolved key with the caller-provided materialization
-seed. Vectorized plate draws consume the resulting NumPy generator.
+For each distribution, materialization computes:
+
+```text
+node_entropy = H_v0.1(graph_structure_hash, rng_label-or-no-label)
+sampling_seed = H_v0.1(run_seed, node_entropy)
+```
+
+The node entropy is stamped when the raw expression first becomes a checkpoint.
+The sampling seed is stored when the distribution's phase is enabled, whether
+or not its dependencies are ready in that pass. Vectorized plate draws consume
+one NumPy generator initialized from that stored sampling seed.
+
+The optional label never overrides the graph contribution. Consequently,
+reusing a label cannot accidentally couple distinct distribution nodes.
 
 The derivation must be stable across process runs and must not use Python's randomized `hash()`.
+
+### 10.1 Stochastic-only graph projection
+
+Only distribution nodes consume RNG state. Hash resolution therefore contracts
+constants, operators, plate nodes, and reductions into paths between
+distribution nodes. For each distribution `v`:
+
+- `D(v)` hashes its distribution type and the nearest upstream stochastic
+  nodes for every named parameter;
+- every projected input edge retains its parameter name and an occurrence
+  ordinal, so consuming one node twice differs from consuming it once;
+- `C(v)` hashes the sorted multiset of direct stochastic consumers of `v`,
+  using each consumer's dependency hash, parameter name, and occurrence
+  ordinal;
+- `E(v)` canonically enumerates separately allocated nodes with identical
+  `(D, C)` context;
+- the final graph hash is `H_v0.1(D(v), C(v), E(v))`.
+
+The root contributes synthetic output-consumer edges for its stochastic
+frontier. Dependency names are canonicalized lexicographically; allocation IDs
+are used only for in-process memoization and never enter a digest.
+
+Deterministic operator kinds, constant values, plate metadata, phase metadata,
+and RNG labels intentionally do not affect the graph-structure hash. Labels are
+mixed only afterward when deriving node entropy.
 
 Required behavior:
 
@@ -321,7 +369,9 @@ Required behavior:
 - graph sharing results in one shared sampled value;
 - distinct distribution nodes result in distinct draw addresses, even when their parameters are structurally identical;
 - reordering or otherwise changing the reachable graph may change unnamed addresses and is considered a structural change;
-- explicit `rng_key` values provide stability across such refactors when their stochastic meaning is intended to remain fixed.
+- changing deterministic details between the same stochastic boundaries need
+  not change graph-derived entropy;
+- an `rng_label` supplements but never replaces structural uniqueness.
 
 ## 11. Numeric execution
 
@@ -340,14 +390,14 @@ computation-structure comparison. They compare:
 - canonical plate layouts.
 
 Structural equality intentionally ignores allocation identity, aliasing, phases,
-explicit RNG keys, and graph-resolved RNG keys. It answers whether the same
+RNG labels, graph-derived node entropy, and bound sampling seeds. It answers whether the same
 deterministic computation and distribution structure is represented.
 
 `SamplingCheckpoint.stochastically_equal` first requires structural equality and
-then compares relevant plate sizes, remaining phase requirements, and resolved
-distribution RNG keys. Consequently, a shared distribution used twice is
-structurally equal but not stochastically equal to two independently allocated
-distributions unless explicit RNG keys opt them into equivalent streams.
+then compares relevant plate sizes, remaining phase requirements, graph-derived
+node entropy, and any already bound sampling seeds. Consequently, a shared
+distribution used twice is structurally equal but not stochastically equal to
+two independently allocated distributions.
 
 Equality is not algebraic: `x + y` need not equal `y + x`, and no simplification such as `x + 0 == x` is performed.
 
@@ -361,7 +411,8 @@ The public error hierarchy is:
 ```text
 StochasticProgrammingError
 ├── GraphValidationError
-│   └── GraphCycleError
+│   ├── GraphCycleError
+│   └── DependencyRewriteError
 ├── PlateError
 │   ├── DuplicatePlateError
 │   ├── PlateExpectationError
@@ -398,13 +449,13 @@ v0.1 excludes:
 
 ```python
 with sampling_phase("latent"):
-    x = Normal(0.0, 1.0, rng_key="x").add_plates("row")
+    x = Normal(0.0, 1.0, rng_label="x").add_plates("row")
 
 with sampling_phase("observation"):
     y = Normal(
         mu=x,
         sigma=1.0,
-        rng_key="y",
+        rng_label="y",
     ).add_plates("col", expect=("row",))
 
 z = y.mean("col").check_plates("row")

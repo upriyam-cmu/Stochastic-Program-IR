@@ -1,28 +1,20 @@
 from dataclasses import dataclass
-from enum import Enum
-from typing import Sequence, TypeAlias
+from typing import TypeAlias
 
 Seed: TypeAlias = int
-RngKey: TypeAlias = str
+RngLabel: TypeAlias = str
 HashDigest: TypeAlias = bytes
-PlateCoordinate: TypeAlias = tuple[str, int]
-
-class RngKeyOrigin(str, Enum):
-    EXPLICIT = "explicit"
-    GRAPH = "graph"
 
 @dataclass(frozen=True, slots=True)
-class ResolvedRngKey:
+class NodeEntropy:
     digest: HashDigest
-    origin: RngKeyOrigin
 
-def resolve_explicit_rng_key(rng_key: RngKey) -> ResolvedRngKey: ...
-def derive_seed(
-    seed: Seed | None,
-    rng_key: RngKey | ResolvedRngKey,
-) -> Seed: ...
-def derive_draw_seed(
-    seed: Seed | None,
-    rng_key: RngKey | ResolvedRngKey,
-    coordinates: Sequence[PlateCoordinate],
+def derive_node_entropy(
+    graph_hash: HashDigest,
+    rng_label: RngLabel | None,
+) -> NodeEntropy: ...
+def resolve_run_seed(seed: Seed | None) -> Seed: ...
+def derive_sampling_seed(
+    run_seed: Seed,
+    node_entropy: NodeEntropy,
 ) -> Seed: ...

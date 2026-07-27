@@ -3,9 +3,23 @@ import unittest
 import numpy as np
 
 from stochastic_programming_library import Constant, DataType, PlateLayout
+from stochastic_programming_library.errors import DependencyRewriteError
 
 
 class PlateAwareOperatorTests(unittest.TestCase):
+    def test_dependency_rewrite_requires_the_complete_named_mapping(self) -> None:
+        expr = Constant.of(1, DataType.INT) + Constant.of(2, DataType.INT)
+        rewritten = expr.rewrite_dependencies(
+            {
+                "lhs": Constant.of(3, DataType.INT),
+                "rhs": Constant.of(4, DataType.INT),
+            }
+        )
+
+        self.assertEqual(rewritten.realize().data, 7)
+        with self.assertRaises(DependencyRewriteError):
+            expr.rewrite_dependencies({"lhs": Constant.of(3, DataType.INT)})
+
     def test_binary_operator_aligns_by_canonical_plate_layout(self) -> None:
         by_row = Constant.array(
             np.array([1.0, 2.0]),
@@ -18,8 +32,8 @@ class PlateAwareOperatorTests(unittest.TestCase):
             PlateLayout.wrap(("col",)),
         )
 
-        result = (by_row + by_col).value(
-            {"row": 2, "col": 3},
+        result = (by_row + by_col).realize(
+            plate_sizes={"row": 2, "col": 3},
         )
 
         self.assertEqual(result.layout.plates, ("col", "row"))
@@ -41,8 +55,8 @@ class PlateAwareOperatorTests(unittest.TestCase):
             PlateLayout.wrap(("col", "row")),
         )
 
-        result = value.mean("col").value(
-            {"row": 2, "col": 3},
+        result = value.mean("col").realize(
+            plate_sizes={"row": 2, "col": 3},
         )
 
         self.assertEqual(result.layout.plates, ("row",))

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from ..rng import HashDigest, ResolvedRngKey
+from ..rng import HashDigest, NodeEntropy
 from .nodes import RandomDistributionNode, RandomVariable
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +55,13 @@ class ResolvedGraphHashes:
     projection: StochasticProjection
 
     def for_node(self, node: RandomDistributionNode) -> NodeHashParts: ...
-    def rng_key_for(self, node: RandomDistributionNode) -> ResolvedRngKey: ...
+    def node_entropy_for(self, node: RandomDistributionNode) -> NodeEntropy: ...
 
 def stochastic_frontier(
     expr: RandomVariable,
 ) -> tuple[RandomDistributionNode, ...]: ...
 def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes: ...
-def stamp_resolved_rng_keys(
+def stamp_node_entropies(
     root: RandomVariable,
     hashes: ResolvedGraphHashes,
 ) -> RandomVariable: ...

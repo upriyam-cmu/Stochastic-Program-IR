@@ -25,7 +25,8 @@ Acceptance checks:
 - equivalent separately built DAGs compare equal;
 - shared-node and duplicate-node graphs compare structurally equal when their
   computation trees are otherwise equivalent;
-- resolved checkpoints distinguish stochastic aliasing and RNG-key differences.
+- resolved checkpoints distinguish stochastic aliasing, node entropy, and bound
+  sampling-seed differences.
 
 ## Deliverable 2: plate algebra and value alignment
 
@@ -81,8 +82,12 @@ Required work:
 - a stochastic-only graph projection;
 - dependency hashes, direct-consumer hashes, structural input ordinals, and
   symmetric-node enumeration;
-- explicit `rng_key` overrides;
-- key resolution coupled to materialization;
+- duplicate projected edges for repeated stochastic consumption;
+- optional `rng_label` entropy mixed after the graph hash;
+- node-entropy resolution coupled to initial materialization;
+- one run seed selected per materialization invocation;
+- phase-enabled sampling seeds bound immediately, even while dependencies are
+  blocked;
 - NumPy sampling for the implemented distributions;
 - concrete deterministic arithmetic, transforms, and reductions.
 
@@ -91,9 +96,9 @@ Acceptance checks:
 - the same graph and seed reproduce exactly;
 - different seeds alter pending stochastic nodes;
 - unrelated graph construction does not perturb a result;
-- explicit RNG keys preserve draws across non-semantic graph refactors;
+- labels never override graph structure or couple distinct nodes;
 - separately allocated symmetric nodes receive distinct default keys;
-- aliases of one node share one resolved key and sampled value.
+- aliases of one node share one resolved entropy identity and sampled value.
 
 ## Deliverable 5: immutable partial materialization
 
@@ -105,6 +110,7 @@ Required work:
 - an opaque, non-composable `SamplingCheckpoint`;
 - monotonic phase-barrier removal;
 - dependency-blocked enabled nodes that resume on a later pass;
+- node-owned exact dependency rewriting through `rewrite_dependencies`;
 - distribution-to-constant replacement;
 - eager constant folding for deterministic downstream nodes;
 - unchanged subgraph sharing;
@@ -121,6 +127,8 @@ Acceptance checks:
 - two branches share embedded early-phase constants;
 - later-phase seeds can vary independently;
 - value extraction fails while stochastic nodes remain.
+- deterministic raw expressions can realize without a checkpoint;
+- checkpoint `value()` extracts only an already constant root.
 
 ## Deliverable 6: product validation suite and examples
 
@@ -145,7 +153,7 @@ The release candidate is acceptable only if each example is shorter or materiall
 | Plates | add, duplicate add, exact check, failed expectation, ordered union, each reduction |
 | Alignment | scalar/scalar, row/scalar, row/col, reduced row/col |
 | Phases | named, unphased, nested context, blocked enabled phase, enable all |
-| RNG | same seed, different seed, unrelated construction, explicit stable key, symmetric enumeration |
+| RNG | same seed, different seed, unrelated construction, label mixing, repeated projected edge, symmetric enumeration, blocked-node seed persistence |
 | Materialization | none eligible, some eligible, all eligible, immutable source, branch reuse |
 | Errors | invalid plate, missing size, numeric sampling failure, premature value extraction |
 
@@ -178,8 +186,11 @@ Do not begin the following during v0.1 unless the core acceptance work proves im
 
 ## Locked implementation decisions
 
-- explicit `rng_key` remains optional;
+- optional `rng_label` supplements graph-derived entropy and never overrides it;
 - exact concrete values use NumPy arrays;
 - `PlateLayout` is canonicalized lexicographically;
 - unphased distributions remain expressible and have no phase barrier;
-- a public backend protocol is deferred.
+- a public backend protocol is deferred;
+- distribution constructors retain their natural parameters (for example,
+  `Normal(mu, sigma)`) rather than lowering to standardized distributions;
+- custom-node execution support and public graph rewrite APIs are deferred.

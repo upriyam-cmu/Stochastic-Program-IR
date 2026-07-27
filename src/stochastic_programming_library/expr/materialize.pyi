@@ -25,6 +25,7 @@ class SamplingCheckpoint:
         plate_sizes: PlateSizes | None = ...,
         phases: Iterable[Phase] | None = ...,
     ) -> SamplingCheckpoint: ...
+    def value(self) -> ConcreteValue: ...
     def realize(
         self,
         *,

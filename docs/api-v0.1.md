@@ -32,7 +32,7 @@ from stochastic_programming_library import (
 ```python
 Constant.of(value, dtype)
 Constant.array(array, dtype, plate_layout)
-Normal(mu, sigma, *, rng_key=None)
+Normal(mu, sigma, *, rng_label=None)
 ```
 
 Python scalar distribution parameters are coerced to constants. A distribution records the active `sampling_phase` at construction.
@@ -44,6 +44,7 @@ expr.plates
 expr.plate_layout
 expr.pending_phases
 expr.has_value
+expr.dependencies
 ```
 
 ## Expression transforms
@@ -85,6 +86,16 @@ Comparison checks computation structure while ignoring object aliasing and RNG
 resolution. It is not numerical closeness, algebraic equivalence, or
 probabilistic equality.
 
+Nodes also implement an exact, node-owned dependency reconstruction contract:
+
+```python
+expr.rewrite_dependencies({"dependency_name": rewritten_expr, ...})
+```
+
+The mapping must contain every dependency exactly once. This method supports
+internal immutable graph rewrites; general custom-node support remains outside
+the v0.1 public extension contract.
+
 ## Staged execution
 
 ```python
@@ -98,21 +109,29 @@ value = partial.realize(
     seed=11,
     plate_sizes={"row": 4},
 )
+
+completed = partial.materialize(seed=11)
+value = completed.value()
 ```
 
 `materialize` returns an opaque, non-composable `SamplingCheckpoint`.
 `phases=None` enables every remaining named phase. Unphased distributions have
 no barrier and execute as soon as their dependencies are concrete.
 
-Only checkpoints expose stochastic comparison because RNG keys are resolved as
-part of materialization:
+Only checkpoints expose `value()` and stochastic comparison because graph-aware
+node entropy is resolved as part of materialization:
 
 ```python
 partial.stochastically_equal(other_partial)
 ```
 
 This comparison first requires structural equality and then compares relevant
-plate sizes, remaining phase requirements, and resolved RNG keys.
+plate sizes, remaining phase requirements, node entropy, and bound sampling
+seeds.
+
+When an enabled phase is blocked by another stochastic dependency, its sampling
+seed is still fixed during that materialization call. Clearing the dependency
+later does not silently replace it with the later call's seed.
 
 ## Numeric execution
 

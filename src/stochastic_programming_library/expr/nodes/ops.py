@@ -1,4 +1,6 @@
-from typing_extensions import override
+from collections.abc import Mapping
+from dataclasses import replace
+from typing_extensions import Self, override
 
 from ..meta import ConcreteValue, Phase, PlateLayout, PlateSizes, ValueMeta
 from ..ops import BinOpImpl, ReductionImpl, UnaryOpImpl
@@ -14,6 +16,17 @@ class BinOpNode(RandomVariable):
     @override
     def _compute_dependencies(self) -> tuple[Dependency, ...]:
         return Dependency.wrap({"lhs": self.lhs, "rhs": self.rhs})
+
+    @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return replace(
+            self,
+            lhs=dependencies["lhs"],
+            rhs=dependencies["rhs"],
+        )
 
     @override
     def _compute_plate_layout(self) -> PlateLayout:
@@ -32,12 +45,15 @@ class BinOpNode(RandomVariable):
         return self.op.resolve_meta(self.lhs.value_meta, self.rhs.value_meta)
 
     @override
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue:
-        lhs_val = self.lhs.value(plate_sizes)
-        rhs_val = self.rhs.value(plate_sizes)
-
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
         from .shape import add_plates
 
+        lhs_val = dependencies["lhs"]
+        rhs_val = dependencies["rhs"]
         lhs_arr = add_plates(
             arr=lhs_val.data,
             old_layout=lhs_val.layout,
@@ -78,6 +94,13 @@ class UnaryOpNode(RandomVariable):
         return Dependency.wrap({"arg": self.arg})
 
     @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return replace(self, arg=dependencies["arg"])
+
+    @override
     def _compute_plate_layout(self) -> PlateLayout:
         return self.arg.plate_layout
 
@@ -94,8 +117,12 @@ class UnaryOpNode(RandomVariable):
         return self.op.resolve_meta(self.arg.value_meta)
 
     @override
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue:
-        arg_val = self.arg.value(plate_sizes)
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
+        arg_val = dependencies["arg"]
         return ConcreteValue.wrap(
             data=self.op.compute_value(arg_val.data),
             layout=self.plate_layout,
@@ -128,6 +155,13 @@ class ReductionOpNode(RandomVariable):
         return Dependency.wrap({"arg": self.arg})
 
     @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return replace(self, arg=dependencies["arg"])
+
+    @override
     def _compute_plate_layout(self) -> PlateLayout:
         return self.arg.plate_layout - self.removed_plates
 
@@ -144,8 +178,12 @@ class ReductionOpNode(RandomVariable):
         return self.op.resolve_meta(self.arg.value_meta)
 
     @override
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue:
-        arg_val = self.arg.value(plate_sizes)
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
+        arg_val = dependencies["arg"]
         if not self.removed_plates.plates:
             return arg_val
 

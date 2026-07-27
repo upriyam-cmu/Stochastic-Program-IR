@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cached_property
+from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -14,9 +15,10 @@ from typing import (
 )
 
 import numpy as np
-from typing_extensions import dataclass_transform, override
+from typing_extensions import Self, dataclass_transform, override
 
 from ...errors import (
+    DependencyRewriteError,
     MissingPlateSizeError,
     PlateExpectationError,
     PlateSizeMismatchError,
@@ -101,12 +103,9 @@ def rv_impl(
 @rv_impl
 class RandomVariable(ABC):
     def __post_init__(self) -> None:
-        # eagerly materialize all values
-        #
-        # this also activates any important checks for validity,
-        # e.g. for support, or plate interactions, etc -- so that
-        # validation can be done at node construction time rather
-        # than at value materialization
+        # Resolve cached structural metadata eagerly so invalid support,
+        # dependency, or plate interactions fail at node construction rather
+        # than during a later materialization pass.
         _ = self.dependencies
         _ = self.plate_layout
         _ = self.pending_phases
@@ -115,9 +114,69 @@ class RandomVariable(ABC):
 
     @abstractmethod
     def _compute_dependencies(self) -> tuple[Dependency, ...]: ...
+
     @cached_property
     def dependencies(self) -> tuple[Dependency, ...]:
-        return self._compute_dependencies()
+        """Return the node's complete dependency slots in canonical name order."""
+
+        dependencies = self._compute_dependencies()
+        names = tuple(dependency.name for dependency in dependencies)
+        if any(not name for name in names):
+            raise DependencyRewriteError(
+                f"{type(self).__name__} has an empty dependency name"
+            )
+        if len(names) != len(set(names)):
+            raise DependencyRewriteError(
+                f"{type(self).__name__} has duplicate dependency names: {names}"
+            )
+        return tuple(sorted(dependencies, key=lambda dependency: dependency.name))
+
+    @abstractmethod
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, "RandomVariable"],
+    ) -> Self: ...
+
+    def rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, "RandomVariable"],
+    ) -> Self:
+        """Rebuild this node with one replacement for every dependency slot.
+
+        The public wrapper owns the generic rewrite contract; subclasses only
+        map the validated dependency names back to their constructor fields.
+        """
+
+        expected_names = tuple(dependency.name for dependency in self.dependencies)
+        supplied_names = tuple(sorted(dependencies))
+        if supplied_names != expected_names:
+            raise DependencyRewriteError(
+                f"{type(self).__name__} expected dependency names "
+                f"{expected_names}, got {supplied_names}"
+            )
+        if any(
+            not isinstance(dependency, RandomVariable)
+            for dependency in dependencies.values()
+        ):
+            raise DependencyRewriteError(
+                "rewritten dependencies must all be RandomVariable instances"
+            )
+
+        rewritten = self._rewrite_dependencies(MappingProxyType(dict(dependencies)))
+        if type(rewritten) is not type(self):
+            raise DependencyRewriteError(
+                f"{type(self).__name__} dependency rewrite returned "
+                f"{type(rewritten).__name__}"
+            )
+        rewritten_names = tuple(
+            dependency.name for dependency in rewritten.dependencies
+        )
+        if rewritten_names != expected_names:
+            raise DependencyRewriteError(
+                f"{type(self).__name__} dependency rewrite changed its slots "
+                f"from {expected_names} to {rewritten_names}"
+            )
+        return rewritten
 
     @abstractmethod
     def _compute_plate_layout(self) -> PlateLayout: ...
@@ -148,7 +207,13 @@ class RandomVariable(ABC):
         return self._compute_value_meta()
 
     @abstractmethod
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue: ...
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
+        """Evaluate this node from already concrete dependency values."""
+        ...
 
     def add_plates(
         self,
@@ -279,9 +344,9 @@ class RandomVariable(ABC):
         seed: Seed | None = None,
         plate_sizes: PlateSizes | None = None,
     ) -> ConcreteValue:
-        return self.materialize(
-            seed=seed, plate_sizes=plate_sizes, phases=None
-        ).realize(seed=seed, plate_sizes=plate_sizes)
+        from ..materialize import realize
+
+        return realize(self, seed=seed, plate_sizes=plate_sizes)
 
     @abstractmethod
     def structurally_equal(self, other: "RandomVariable") -> bool: ...
@@ -318,6 +383,13 @@ class Constant(RandomVariable):
         return ()
 
     @override
+    def _rewrite_dependencies(
+        self,
+        dependencies: Mapping[str, RandomVariable],
+    ) -> Self:
+        return self
+
+    @override
     def _compute_plate_layout(self) -> PlateLayout:
         return self.val.layout
 
@@ -334,12 +406,12 @@ class Constant(RandomVariable):
         return self.val.meta
 
     @override
-    def value(self, plate_sizes: PlateSizes | None = None) -> ConcreteValue:
+    def _evaluate_concrete(
+        self,
+        dependencies: Mapping[str, ConcreteValue],
+        plate_sizes: PlateSizes,
+    ) -> ConcreteValue:
         if self.val.shape:
-            if not plate_sizes:
-                raise MissingPlateSizeError(
-                    f"Missing sizes for plates {self.val.layout.plates}"
-                )
             for plate, size in zip(self.val.layout, self.val.shape, strict=True):
                 if plate not in plate_sizes:
                     raise MissingPlateSizeError(f"Missing size for {plate=}")

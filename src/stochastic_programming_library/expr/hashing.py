@@ -1,23 +1,56 @@
+"""Project an expression DAG into stable per-distribution RNG identities.
+
+Only distribution nodes consume randomness, so the hash scheme deliberately
+contracts deterministic nodes. The resulting stochastic multigraph retains:
+
+* the nearest upstream distribution nodes for each named input;
+* the left-to-right occurrence ordinal within that input;
+* repeated edges when one distribution is consumed more than once; and
+* a synthetic output consumer for the stochastic frontier of the root.
+
+For each distribution ``v`` the resolver computes:
+
+``D(v)``
+    A dependency hash from the distribution type and every
+    ``(input name, ordinal, D(source))`` edge.
+
+``C(v)``
+    A direct-consumer hash from the sorted *multiset* of
+    ``(D(consumer), input name, ordinal)`` edges. Duplicate uses remain
+    duplicate entries, so consuming a node twice differs from consuming it
+    once. Descendants beyond the direct stochastic consumer are excluded.
+
+``E(v)``
+    A canonical traversal ordinal among nodes with identical ``(D, C)``.
+    Aliases are visited once; separately allocated symmetric nodes therefore
+    receive different ordinals.
+
+``G(v) = H(D(v), C(v), E(v))``
+    The final graph-structure hash. Deterministic operator kinds, constants,
+    plates, phases, and user RNG labels intentionally do not participate.
+
+Object identities are used only as in-process lookup keys and are never mixed
+into a digest.
+"""
+
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from hashlib import blake2s
 from types import MappingProxyType
 
 from ..errors import GraphCycleError
-from ..rng import (
-    HashDigest,
-    ResolvedRngKey,
-    RngKeyOrigin,
-    resolve_explicit_rng_key,
-)
+from ..rng import HashDigest, NodeEntropy, derive_node_entropy
 from .nodes.base import RandomVariable
 from .nodes.distr.base import RandomDistributionNode
 
 
+_HASH_SCHEME = b"spl-v0.1:stochastic-projection"
+
+
 def _digest(*parts: bytes) -> HashDigest:
     hasher = blake2s(digest_size=16)
-    for part in parts:
+    for part in (_HASH_SCHEME, *parts):
         hasher.update(len(part).to_bytes(8, byteorder="little"))
         hasher.update(part)
     return hasher.digest()
@@ -25,6 +58,8 @@ def _digest(*parts: bytes) -> HashDigest:
 
 @dataclass(frozen=True, slots=True)
 class StochasticInputEdge:
+    """One occurrence of a distribution at a stochastic consumer boundary."""
+
     source: RandomDistributionNode
     consumer: RandomDistributionNode | None
     parameter: str
@@ -38,6 +73,8 @@ class StochasticInputEdge:
 def stochastic_frontier(
     expr: RandomVariable,
 ) -> tuple[RandomDistributionNode, ...]:
+    """Return nearest upstream distributions, preserving use multiplicity."""
+
     if isinstance(expr, RandomDistributionNode):
         return (expr,)
     return tuple(
@@ -49,6 +86,8 @@ def stochastic_frontier(
 
 @dataclass(frozen=True, slots=True)
 class StochasticProjection:
+    """The stochastic-only multigraph reachable from one expression root."""
+
     root: RandomVariable
     nodes: tuple[RandomDistributionNode, ...]
     edges: tuple[StochasticInputEdge, ...]
@@ -120,11 +159,15 @@ class StochasticProjection:
 
 @dataclass(frozen=True, slots=True)
 class NodeEnumeration:
+    """Distinguishes separate nodes with otherwise identical hash context."""
+
     ordinal: int
 
 
 @dataclass(frozen=True, slots=True)
 class NodeHashParts:
+    """Auditable intermediate and final structural hashes for one node."""
+
     dependency: HashDigest
     consumer: HashDigest
     enumeration: NodeEnumeration
@@ -133,15 +176,19 @@ class NodeHashParts:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedGraphHashes:
+    """Identity-indexed structural hashes for one projected expression root."""
+
     projection: StochasticProjection
     _parts_by_identity: Mapping[int, NodeHashParts]
-    _keys_by_identity: Mapping[int, ResolvedRngKey]
 
     def for_node(self, node: RandomDistributionNode) -> NodeHashParts:
         return self._parts_by_identity[id(node)]
 
-    def rng_key_for(self, node: RandomDistributionNode) -> ResolvedRngKey:
-        return self._keys_by_identity[id(node)]
+    def node_entropy_for(self, node: RandomDistributionNode) -> NodeEntropy:
+        return derive_node_entropy(
+            self.for_node(node).final,
+            node.rng_label,
+        )
 
 
 def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
@@ -201,7 +248,6 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
 
     bucket_counts: defaultdict[tuple[HashDigest, HashDigest], int] = defaultdict(int)
     parts_by_identity: dict[int, NodeHashParts] = {}
-    keys_by_identity: dict[int, ResolvedRngKey] = {}
     for node in projection.nodes:
         identity = id(node)
         bucket = (dependency_hashes[identity], consumer_hashes[identity])
@@ -219,42 +265,33 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
             enumeration=enumeration,
             final=final,
         )
-        keys_by_identity[identity] = (
-            resolve_explicit_rng_key(node.rng_key)
-            if node.rng_key is not None
-            else ResolvedRngKey(final, RngKeyOrigin.GRAPH)
-        )
 
     return ResolvedGraphHashes(
         projection=projection,
         _parts_by_identity=MappingProxyType(parts_by_identity),
-        _keys_by_identity=MappingProxyType(keys_by_identity),
     )
 
 
-def stamp_resolved_rng_keys(
+def stamp_node_entropies(
     root: RandomVariable,
     hashes: ResolvedGraphHashes,
 ) -> RandomVariable:
+    """Rewrite a graph with resolved entropy attached to each distribution."""
+
     memo: dict[int, RandomVariable] = {}
 
     def rewrite(node: RandomVariable) -> RandomVariable:
         identity = id(node)
         if identity in memo:
             return memo[identity]
-        dependency_changes = {
+        rewritten_dependencies = {
             dependency.name: rewrite(dependency.var) for dependency in node.dependencies
         }
+        rewritten = node.rewrite_dependencies(rewritten_dependencies)
         if isinstance(node, RandomDistributionNode):
-            rewritten = replace(
-                node,
-                **dependency_changes,
-                _resolved_rng_key=hashes.rng_key_for(node),
-            )
-        else:
-            rewritten = (
-                replace(node, **dependency_changes) if dependency_changes else node
-            )
+            if not isinstance(rewritten, RandomDistributionNode):
+                raise TypeError("distribution rewrite changed the node category")
+            rewritten = rewritten.with_node_entropy(hashes.node_entropy_for(node))
         memo[identity] = rewritten
         return rewritten
 

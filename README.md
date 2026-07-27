@@ -28,13 +28,13 @@ from stochastic_programming_library import (
 )
 
 with sampling_phase("latent"):
-    weights = Normal(0.0, 1.0, rng_key="weights").add_plates("layer")
+    weights = Normal(0.0, 1.0, rng_label="weights").add_plates("layer")
 
 with sampling_phase("observation"):
     activations = Normal(
         mu=weights,
         sigma=softplus(weights) + 0.1,
-        rng_key="activations",
+        rng_label="activations",
     ).add_plates("batch", expect=("layer",))
 
 layer_score = (
@@ -111,15 +111,18 @@ independent_checkpoint = independent.materialize(seed=1, phases=())
 assert not shared_checkpoint.stochastically_equal(independent_checkpoint)
 ```
 
-RNG-key resolution occurs only as part of materialization. The returned
-checkpoint therefore exposes `stochastically_equal`, which additionally compares
-the resolved graph-aware RNG keys and catches the shared-versus-independent
-distinction. Raw expression nodes intentionally do not expose that method.
+Graph-aware node entropy resolution occurs only as part of materialization. The
+returned checkpoint therefore exposes `stochastically_equal`, which additionally
+compares graph-derived entropy and any bound sampling seeds and catches the
+shared-versus-independent distinction. A user-facing `rng_label` may supplement
+that entropy, but never replaces the graph contribution or opts distinct nodes
+into shared randomness. Raw expression nodes intentionally do not expose
+stochastic comparison.
 
 ## Backend boundary
 
 The graph engine owns symbolic structure, plate alignment, phase handling,
-deterministic RNG-key derivation, and immutable materialization. v0.1 performs
+deterministic RNG entropy derivation, and immutable materialization. v0.1 performs
 numeric propagation and distribution sampling with NumPy internally. Conversion
 to other array libraries belongs at API boundaries; a pluggable backend protocol
 is not part of the current implementation.
@@ -129,6 +132,7 @@ is not part of the current implementation.
 - [v0.1 specification](specs/specification-v0.1.md)
 - [v0.1 implementation plan](docs/implementation-plan-v0.1.md)
 - [public API contract](docs/api-v0.1.md)
+- [graph hashing and materialization architecture](docs/graph-hashing-and-materialization.md)
 - The typed implementation lives in [`src/stochastic_programming_library`](src/stochastic_programming_library).
 
 ## v0.1 boundaries
