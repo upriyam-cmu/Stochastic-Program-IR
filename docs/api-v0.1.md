@@ -1,38 +1,27 @@
 # v0.1 Public API Contract
 
-The `.pyi` files under `src/stochastic_programming_library` are the machine-readable API contract. This page summarizes the intended imports and behavior. None of these runtime objects is implemented yet.
+The typed runtime under `src/stochastic_programming_library` is the
+machine-readable API contract. This page summarizes the currently implemented
+surface.
 
 ## Top-level imports
 
 ```python
 from stochastic_programming_library import (
-    BackendError,
-    Bernoulli,
+    ConcreteValue,
     Constant,
-    DistributionKind,
-    DuplicatePlateError,
-    DuplicateRNGNameError,
-    Expr,
-    GraphCycleError,
-    GraphValidationError,
-    MaterializationError,
-    MissingPlateSizeError,
+    DataType,
+    Gaussian,
     Normal,
-    NumPyBackend,
-    PhaseError,
-    PlateError,
-    PlateExpectationError,
-    Reduction,
-    RNGKey,
-    SampleRequest,
-    SamplingBackend,
-    StochasticProgrammingError,
-    Uniform,
-    UnknownPlateError,
-    UnrealizedGraphError,
+    PlateLayout,
+    RandomVariable,
+    SamplingCheckpoint,
+    ValueMeta,
+    ValueSupport,
     current_sampling_phase,
     exp,
     log,
+    normal,
     sampling_phase,
     softplus,
 )
@@ -41,10 +30,9 @@ from stochastic_programming_library import (
 ## Construction
 
 ```python
-Constant(value, *, plates=())
-Normal(mu, sigma, *, rng_name=None)
-Uniform(low, high, *, rng_name=None)
-Bernoulli(p, *, rng_name=None)
+Constant.of(value, dtype)
+Constant.array(array, dtype, plate_layout)
+Normal(mu, sigma, *, rng_key=None)
 ```
 
 Python scalar distribution parameters are coerced to constants. A distribution records the active `sampling_phase` at construction.
@@ -53,10 +41,9 @@ Python scalar distribution parameters are coerced to constants. A distribution r
 
 ```python
 expr.plates
-expr.plate_order
+expr.plate_layout
 expr.pending_phases
-expr.enabled_phases
-expr.is_fully_realized
+expr.has_value
 ```
 
 ## Expression transforms
@@ -94,7 +81,9 @@ expr == other
 expr.structurally_equal(other)
 ```
 
-Comparison is exact and alias-preserving. It is not numerical closeness or algebraic equivalence.
+Comparison checks computation structure while ignoring object aliasing and RNG
+resolution. It is not numerical closeness, algebraic equivalence, or
+probabilistic equality.
 
 ## Staged execution
 
@@ -102,38 +91,31 @@ Comparison is exact and alias-preserving. It is not numerical closeness or algeb
 partial = expr.materialize(
     phases=("latent",),
     seed=10,
-    backend=None,
     plate_sizes={"row": 4},
 )
 
 value = partial.realize(
     seed=11,
-    backend=None,
     plate_sizes={"row": 4},
 )
 ```
 
-Passing `backend=None` selects the package's eventual default `NumPyBackend`. Passing `phases=None` enables all remaining phases.
+`materialize` returns an opaque, non-composable `SamplingCheckpoint`.
+`phases=None` enables every remaining named phase. Unphased distributions have
+no barrier and execute as soon as their dependencies are concrete.
 
-Extraction without new sampling is explicit:
-
-```python
-expr.assert_fully_realized()
-value = expr.value()
-```
-
-Both calls fail when a reachable distribution node remains.
-
-## Backend protocol
+Only checkpoints expose stochastic comparison because RNG keys are resolved as
+part of materialization:
 
 ```python
-class SamplingBackend(Protocol):
-    def sample(
-        self,
-        request: SampleRequest,
-        *,
-        rng_key: RNGKey,
-    ) -> object: ...
+partial.stochastically_equal(other_partial)
 ```
 
-The request contains a distribution enum, aligned concrete parameters, and an unnamed output shape. Backend implementations do not traverse graphs or interpret plates and phases.
+This comparison first requires structural equality and then compares relevant
+plate sizes, remaining phase requirements, and resolved RNG keys.
+
+## Numeric execution
+
+v0.1 stores concrete values as NumPy arrays and samples through
+`numpy.random.Generator`. There is no public backend protocol in the current
+surface.

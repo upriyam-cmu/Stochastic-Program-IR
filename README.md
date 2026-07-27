@@ -1,6 +1,6 @@
 # Stochastic Programming Library
 
-> Status: v0.1 API and design specification only. The package is not implemented yet.
+> Status: early v0.1 implementation. The API is still under active development.
 
 Stochastic Programming Library is a graph-first Python API for authoring stochastic programs that are easy to read, compare, validate, and realize in stages.
 
@@ -14,7 +14,8 @@ The project is deliberately not a probabilistic inference framework. v0.1 is aim
 - which samples are shared and which are independently replicated;
 - which named plates are added, preserved, checked, or reduced;
 - which phase of a program may be sampled at each materialization step;
-- whether two programs have the same graph structure, including shared-node relationships;
+- whether two programs have the same computation structure and, after key
+  resolution, the same stochastic sharing relationships;
 - how to freeze an early phase and resample later phases from it.
 
 ## Proposed v0.1 API
@@ -27,13 +28,13 @@ from stochastic_programming_library import (
 )
 
 with sampling_phase("latent"):
-    weights = Normal(0.0, 1.0, rng_name="weights").add_plates("layer")
+    weights = Normal(0.0, 1.0, rng_key="weights").add_plates("layer")
 
 with sampling_phase("observation"):
     activations = Normal(
         mu=weights,
         sigma=softplus(weights) + 0.1,
-        rng_name="activations",
+        rng_key="activations",
     ).add_plates("batch", expect=("layer",))
 
 layer_score = (
@@ -60,7 +61,11 @@ sample_a = fixed_latent.realize(seed=200, plate_sizes=sizes)
 sample_b = fixed_latent.realize(seed=201, plate_sizes=sizes)
 ```
 
-`fixed_latent` is another immutable expression graph. Sampled latent nodes have been replaced by constants; observation nodes remain symbolic. The two calls reuse the embedded latent values while intentionally drawing different observation values. Reusing the same seed reproduces the same result.
+`fixed_latent` is an opaque immutable checkpoint around a rewritten expression
+graph. Sampled latent nodes have been replaced by constants; observation nodes
+remain symbolic. The two calls reuse the embedded latent values while
+intentionally drawing different observation values. Reusing the same seed
+reproduces the same result.
 
 ## Core model
 
@@ -84,32 +89,47 @@ Plate identifiers are strings. Their sizes are deliberately not stored in the sy
 
 ## Structural equality
 
-Expression equality is intended for exact structural verification, not algebraic equivalence. It compares node kinds, arguments, plates, phases, RNG names, and graph topology. In particular, it distinguishes a shared sample used twice from two separate but textually identical samples.
+Expression equality is intended for computation-structure verification, not
+algebraic or probabilistic equivalence. It compares node kinds, deterministic
+arguments, distribution kinds, and plate operations while deliberately ignoring
+object aliasing and resolved randomness.
 
 ```python
-x = Normal(0.0, 1.0, rng_name="x")
+x = Normal(0.0, 1.0)
 
 shared = x + x
 independent = (
-    Normal(0.0, 1.0, rng_name="left")
-    + Normal(0.0, 1.0, rng_name="right")
+    Normal(0.0, 1.0)
+    + Normal(0.0, 1.0)
 )
 
-assert shared != independent
+assert shared == independent
+
+shared_checkpoint = shared.materialize(seed=1, phases=())
+independent_checkpoint = independent.materialize(seed=1, phases=())
+
+assert not shared_checkpoint.stochastically_equal(independent_checkpoint)
 ```
 
-This exactness is intentional: the library is designed to test whether a hand-written or agent-generated stochastic program represents the expected dependency graph.
+RNG-key resolution occurs only as part of materialization. The returned
+checkpoint therefore exposes `stochastically_equal`, which additionally compares
+the resolved graph-aware RNG keys and catches the shared-versus-independent
+distinction. Raw expression nodes intentionally do not expose that method.
 
 ## Backend boundary
 
-The graph engine owns symbolic structure, plate alignment, phase handling, deterministic RNG-key derivation, and immutable materialization. A backend only receives a concrete distribution request and an opaque RNG key, and returns a value. The first implementation target is NumPy; JAX and PyTorch are outside the v0.1 deliverable.
+The graph engine owns symbolic structure, plate alignment, phase handling,
+deterministic RNG-key derivation, and immutable materialization. v0.1 performs
+numeric propagation and distribution sampling with NumPy internally. Conversion
+to other array libraries belongs at API boundaries; a pluggable backend protocol
+is not part of the current implementation.
 
 ## Project documents
 
 - [v0.1 specification](specs/specification-v0.1.md)
 - [v0.1 implementation plan](docs/implementation-plan-v0.1.md)
 - [public API contract](docs/api-v0.1.md)
-- Type-level API stubs live in [`src/stochastic_programming_library`](src/stochastic_programming_library).
+- The typed implementation lives in [`src/stochastic_programming_library`](src/stochastic_programming_library).
 
 ## v0.1 boundaries
 

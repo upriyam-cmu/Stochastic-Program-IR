@@ -1,6 +1,8 @@
 # v0.1 Implementation Plan
 
-This plan begins after approval of the API stubs and the normative specification. It intentionally contains no placeholder integrations or speculative extension points: every listed component is needed for the v0.1 acceptance behavior.
+This plan tracks the incremental v0.1 implementation. It intentionally contains
+no placeholder integrations or speculative extension points: every listed
+component is needed for the acceptance behavior.
 
 ## Deliverable 1: immutable graph core
 
@@ -13,16 +15,17 @@ Required work:
 - operator overloads for `+`, `-`, `*`, and `/`;
 - unary nodes for `exp`, `log`, and `softplus`;
 - distribution nodes for `Normal`, `Uniform`, and `Bernoulli`;
-- exact, alias-preserving structural equality;
-- cycle and duplicate explicit RNG-name validation.
+- alias-agnostic structural equality;
+- cycle validation.
 
 Acceptance checks:
 
 - constructing expressions performs no sampling;
 - attempts to mutate nodes fail;
 - equivalent separately built DAGs compare equal;
-- shared-node and duplicate-node graphs compare unequal;
-- phases and RNG names participate in equality.
+- shared-node and duplicate-node graphs compare structurally equal when their
+  computation trees are otherwise equivalent;
+- resolved checkpoints distinguish stochastic aliasing and RNG-key differences.
 
 ## Deliverable 2: plate algebra and value alignment
 
@@ -30,7 +33,7 @@ Implement named plate inference, contracts, reductions, and the minimal concrete
 
 Required work:
 
-- `plates` and deterministic `plate_order` inference;
+- `plates` and canonical lexicographic `plate_layout` inference;
 - `add_plates(*plates, expect=None)`;
 - `check_plates(*plates)`;
 - `reduce_plates` plus the six convenience reduction methods;
@@ -60,7 +63,7 @@ Required work:
 - nested `sampling_phase` restoration;
 - phase capture by distribution constructors only;
 - recursive `pending_phases` introspection;
-- explicit representation of unphased nodes as phase `None`.
+- unphased distribution nodes with no phase barrier.
 
 Acceptance checks:
 
@@ -68,18 +71,19 @@ Acceptance checks:
 - nested contexts assign the innermost phase and restore the outer phase;
 - pending phases reflect only reachable, unmaterialized distributions.
 
-## Deliverable 4: RNG derivation and NumPy backend
+## Deliverable 4: graph-aware RNG derivation and NumPy execution
 
-Implement the one required backend and deterministic graph-to-backend request path.
+Implement deterministic graph-key resolution and concrete NumPy sampling.
 
 Required work:
 
 - stable seed normalization;
-- canonical graph addresses for unnamed distributions;
-- explicit `rng_name` addressing and duplicate detection;
-- per-plate-index key derivation;
-- `SampleRequest`, `RNGKey`, and `SamplingBackend` contract;
-- `NumPyBackend` support for the three v0.1 distributions;
+- a stochastic-only graph projection;
+- dependency hashes, direct-consumer hashes, structural input ordinals, and
+  symmetric-node enumeration;
+- explicit `rng_key` overrides;
+- key resolution coupled to materialization;
+- NumPy sampling for the implemented distributions;
 - concrete deterministic arithmetic, transforms, and reductions.
 
 Acceptance checks:
@@ -87,8 +91,9 @@ Acceptance checks:
 - the same graph and seed reproduce exactly;
 - different seeds alter pending stochastic nodes;
 - unrelated graph construction does not perturb a result;
-- explicit RNG names preserve draws across non-semantic graph refactors;
-- NumPy receives only concrete parameters, shape, and an opaque key.
+- explicit RNG keys preserve draws across non-semantic graph refactors;
+- separately allocated symmetric nodes receive distinct default keys;
+- aliases of one node share one resolved key and sampled value.
 
 ## Deliverable 5: immutable partial materialization
 
@@ -96,13 +101,15 @@ Implement staged graph rewriting and value extraction.
 
 Required work:
 
-- `materialize(phases=..., seed=..., backend=..., plate_sizes=...)`;
-- monotonic enabled-phase annotations;
+- `materialize(phases=..., seed=..., plate_sizes=...)`;
+- an opaque, non-composable `SamplingCheckpoint`;
+- monotonic phase-barrier removal;
 - dependency-blocked enabled nodes that resume on a later pass;
 - distribution-to-constant replacement;
 - eager constant folding for deterministic downstream nodes;
 - unchanged subgraph sharing;
-- `realize`, `value`, and `assert_fully_realized`;
+- checkpoint `materialize` and `realize`;
+- checkpoint-only `stochastically_equal`;
 - materialization error reporting.
 
 Acceptance checks:
@@ -134,24 +141,24 @@ The release candidate is acceptable only if each example is shorter or materiall
 
 | Concern | Required cases |
 | --- | --- |
-| Equality | equal DAGs, different args, different phase, different RNG name, shared vs duplicated node |
+| Equality | equal structures, different args, allocation-order independence, shared vs duplicated stochastic node |
 | Plates | add, duplicate add, exact check, failed expectation, ordered union, each reduction |
 | Alignment | scalar/scalar, row/scalar, row/col, reduced row/col |
 | Phases | named, unphased, nested context, blocked enabled phase, enable all |
-| RNG | same seed, different seed, unrelated construction, explicit stable name |
+| RNG | same seed, different seed, unrelated construction, explicit stable key, symmetric enumeration |
 | Materialization | none eligible, some eligible, all eligible, immutable source, branch reuse |
-| Errors | invalid plate, missing size, duplicate RNG name, backend failure, premature value extraction |
+| Errors | invalid plate, missing size, numeric sampling failure, premature value extraction |
 
 ## Release deliverables
 
 The v0.1 release must contain:
 
-- the public interfaces currently described by the `.pyi` files;
-- one NumPy implementation of `SamplingBackend`;
+- the typed public runtime interfaces;
+- NumPy concrete propagation and distribution sampling;
 - full implementations of the six node families;
 - plate-aware deterministic evaluation and the six reductions;
 - phase contexts and partial materialization;
-- structural equality and documented error messages;
+- structural and checkpoint stochastic equality;
 - tests for the matrix above;
 - the three end-to-end examples;
 - package metadata and generated API documentation.
@@ -169,14 +176,10 @@ Do not begin the following during v0.1 unless the core acceptance work proves im
 - rich tensor indexing or dynamic plates;
 - public graph visitor or rewrite APIs.
 
-## Decision gates
+## Locked implementation decisions
 
-Before implementation begins, confirm:
-
-1. package and import name;
-2. whether `rng_name` remains optional or becomes required for distribution nodes;
-3. whether exact constant equality must support only NumPy values in v0.1;
-4. whether `plate_order` is public API or documented runtime metadata;
-5. whether unphased distributions should remain expressible or automatically use a named default phase.
-
-These are contract decisions, not invitations to widen scope. All other post-v0.1 ideas should be recorded separately and must not block the MVP.
+- explicit `rng_key` remains optional;
+- exact concrete values use NumPy arrays;
+- `PlateLayout` is canonicalized lexicographically;
+- unphased distributions remain expressible and have no phase barrier;
+- a public backend protocol is deferred.
