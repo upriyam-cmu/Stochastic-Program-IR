@@ -129,7 +129,7 @@ class PlateLayout:
 
     @staticmethod
     def wrap(plates: Iterable[Plate]) -> "PlateLayout":
-        return PlateLayout(tuple(plates))
+        return PlateLayout((plates,) if isinstance(plates, str) else tuple(plates))
 
     @staticmethod
     def check_unique_plates(*plates: Plate) -> tuple[Plate, ...]:

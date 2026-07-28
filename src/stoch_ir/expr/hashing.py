@@ -11,7 +11,8 @@ contracts deterministic nodes. The resulting stochastic multigraph retains:
 For each distribution ``v`` the resolver computes:
 
 ``D(v)``
-    A dependency hash from the distribution type and every
+    A dependency hash from the distribution type, complete output plate layout,
+    and every
     ``(input name, ordinal, D(source))`` edge.
 
 ``C(v)``
@@ -26,8 +27,9 @@ For each distribution ``v`` the resolver computes:
     receive different ordinals.
 
 ``G(v) = H(D(v), C(v), E(v))``
-    The final graph-structure hash. Deterministic operator kinds, constants,
-    plates, phases, and user RNG labels intentionally do not participate.
+    The final graph-structure hash. Distribution output plates participate;
+    deterministic operator kinds, constants, phases, and user RNG labels do
+    not.
 
 Object identities are used only as in-process lookup keys and are never mixed
 into a digest.
@@ -216,6 +218,8 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
         result = _digest(
             b"dependency",
             f"{type(node).__module__}.{type(node).__qualname__}".encode(),
+            b"output-plates",
+            *(plate.encode() for plate in node.output_layout),
             *edge_parts,
         )
         active.remove(identity)

@@ -19,13 +19,14 @@ Distribution constructors return immutable symbolic expressions:
 from stoch_ir import Normal, sampling_phase, softplus
 
 with sampling_phase("latent"):
-    row_effect = Normal(0.0, 1.0).add_plates("row")
+    row_effect = Normal(0.0, 1.0, plates="row")
 
 with sampling_phase("observation"):
     observation = Normal(
         mu=row_effect,
         sigma=softplus(row_effect) + 0.1,
-    ).add_plates("replicate", expect=("row",))
+        plates=("row", "replicate"),
+    )
 
 row_score = observation.mean("replicate").check_plates("row")
 ```

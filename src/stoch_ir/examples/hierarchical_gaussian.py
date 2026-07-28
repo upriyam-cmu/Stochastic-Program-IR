@@ -5,13 +5,24 @@ from stoch_ir import Normal, sampling_phase, softplus
 
 def build_model():
     with sampling_phase("latent"):
-        row_effect = Normal(0.0, 1.0, rng_label="row-effect").add_plates("row")
-        col_scale = Normal(0.0, 1.0, rng_label="col-scale").add_plates("col")
+        row_effect = Normal(
+            0.0,
+            1.0,
+            plates="row",
+            rng_label="row-effect",
+        )
+        col_scale = Normal(
+            0.0,
+            1.0,
+            plates="col",
+            rng_label="col-scale",
+        )
 
     with sampling_phase("observation"):
         observation = Normal(
             mu=row_effect,
             sigma=softplus(col_scale) + 0.1,
+            plates=("row", "col"),
             rng_label="observation",
         )
 

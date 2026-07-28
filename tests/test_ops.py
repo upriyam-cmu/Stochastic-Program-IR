@@ -21,6 +21,7 @@ from stoch_ir.errors import (
     PlateSizeMismatchError,
     UnknownPlateError,
 )
+from stoch_ir.expr.meta import PlateLayout
 from stoch_ir.expr.nodes.base import (
     Constant,
     Dependency,
@@ -32,7 +33,6 @@ from stoch_ir.expr.nodes.ops import (
     UnaryOpNode,
 )
 from stoch_ir.expr.nodes.shape import add_plates
-from stoch_ir.expr.meta import PlateLayout
 from stoch_ir.expr.ops.binary_op import FloorDivideOp
 
 
@@ -120,6 +120,10 @@ class PlateAwareOperatorTests(unittest.TestCase):
         self.assertIs(scalar.check_plates(), scalar)
         self.assertEqual(plated.check_plates("row"), plated)
         self.assertEqual(plated.plates, ("row",))
+        self.assertEqual(
+            plated.add_plates("col", expect="row").plates,
+            ("col", "row"),
+        )
         with self.assertRaises(PlateExpectationError):
             plated.check_plates("col")
         with self.assertRaises(PlateExpectationError):

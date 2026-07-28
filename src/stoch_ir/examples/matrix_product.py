@@ -6,8 +6,8 @@ from stoch_ir import Normal
 def build_model():
     """Build a stochastic matrix product with an explicit contraction."""
 
-    left = Normal(0.0, 1.0).add_plates("row", "inner")
-    right = Normal(0.0, 1.0).add_plates("inner", "col")
+    left = Normal(0.0, 1.0, plates=("row", "inner"))
+    right = Normal(0.0, 1.0, plates=("inner", "col"))
     return (left * right).sum("inner").check_plates("row", "col")
 
 

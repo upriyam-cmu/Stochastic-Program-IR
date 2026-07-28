@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 
 import numpy as np
@@ -11,13 +11,14 @@ from ...meta import (
     ConcreteValue,
     DataType,
     Phase,
+    Plate,
     PlateLayout,
     PlateSizes,
     ValueMeta,
     ValueSupport,
 )
 from ..base import Dependency, ExprInput, RandomVariable, as_random_variable, rv_impl
-from .base import RandomDistributionNode
+from .base import RandomDistributionNode, resolve_output_layout
 
 
 @rv_impl
@@ -32,16 +33,23 @@ class UniformDistribution(RandomDistributionNode):
         low: ExprInput = 0.0,
         high: ExprInput = 1.0,
         *,
+        plates: Iterable[Plate] | None = None,
         rng_label: RngLabel | None = None,
         phase_requirement: Phase = None,
     ) -> "UniformDistribution":
+        resolved_low = as_random_variable(low)
+        resolved_high = as_random_variable(high)
         return UniformDistribution(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
             _node_entropy=None,
             _sampling_seed=None,
-            low=as_random_variable(low),
-            high=as_random_variable(high),
+            output_layout=resolve_output_layout(
+                (resolved_low, resolved_high),
+                plates,
+            ),
+            low=resolved_low,
+            high=resolved_high,
         )
 
     @override
@@ -58,10 +66,6 @@ class UniformDistribution(RandomDistributionNode):
             low=dependencies["low"],
             high=dependencies["high"],
         )
-
-    @override
-    def _compute_plate_layout(self) -> PlateLayout:
-        return self.low.plate_layout | self.high.plate_layout
 
     @override
     def _compute_value_meta(self) -> ValueMeta:
@@ -87,6 +91,7 @@ class UniformDistribution(RandomDistributionNode):
     def structurally_equal(self, other: RandomVariable) -> bool:
         return (
             isinstance(other, UniformDistribution)
+            and self.output_layout == other.output_layout
             and self.low.structurally_equal(other.low)
             and self.high.structurally_equal(other.high)
         )
@@ -123,9 +128,10 @@ class UniformDistribution(RandomDistributionNode):
 
 
 def Uniform(
-    low: RandomVariable | bool | int | float = 0.0,
-    high: RandomVariable | bool | int | float = 1.0,
+    low: RandomVariable | bool | float = 0.0,
+    high: RandomVariable | bool | float = 1.0,
     *,
+    plates: Iterable[Plate] | None = None,
     rng_label: RngLabel | None = None,
 ) -> RandomVariable:
     """Create an elementwise continuous uniform random variable.
@@ -137,18 +143,22 @@ def Uniform(
     high
         Symbolic or scalar upper bound. It must be strictly greater than
         ``low`` when sampled.
+    plates
+        Complete output plate layout. When omitted, the union of parameter
+        plates is used.
     rng_label
         Optional semantic label mixed into graph-derived node entropy.
 
     Returns
     -------
     RandomVariable
-        A symbolic uniform draw with the union of bound plates.
+        A symbolic uniform draw with the resolved complete output plates.
     """
 
     return UniformDistribution.wrap(
         low,
         high,
+        plates=plates,
         rng_label=rng_label,
         phase_requirement=_current_sampling_phase(),
     )

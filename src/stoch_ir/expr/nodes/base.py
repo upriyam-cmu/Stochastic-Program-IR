@@ -20,6 +20,7 @@ from ...errors import (
     MissingPlateSizeError,
     PlateExpectationError,
     PlateSizeMismatchError,
+    ValueValidationError,
 )
 from ...rng import Seed
 from ..meta import (
@@ -239,7 +240,7 @@ class RandomVariable(ABC):
         *plates: Plate,
         expect: Iterable[Plate] | None = None,
     ) -> "RandomVariable":
-        """Introduce independent replication over new named plates.
+        """Broadcast the existing value over new named plates.
 
         Parameters
         ----------
@@ -256,7 +257,11 @@ class RandomVariable(ABC):
         """
 
         if expect is not None:
-            self.check_plates(*expect)
+            expected = PlateLayout.wrap(expect)
+            if self.plate_layout != expected:
+                raise PlateExpectationError(
+                    f"Expected {expected.plates}, got {self.plate_layout.plates}"
+                )
 
         from .shape import AddPlatesNode
 
@@ -501,7 +506,7 @@ ExprInput: TypeAlias = RandomVariable | Scalar
 
 
 def constant(
-    value: bool | int | float | np.generic | np.ndarray,
+    value: bool | float | np.generic | np.ndarray,
     *,
     plates: Iterable[Plate] = (),
     dtype: DataType | None = None,
@@ -513,8 +518,8 @@ def constant(
     value
         Boolean, integer, floating scalar, NumPy scalar, or NumPy array.
     plates
-        Named axes for non-scalar values. The number of plates must equal the
-        array rank.
+        Named axes for non-scalar values in input array-axis order. The number
+        of plates must equal the array rank. A bare string denotes one plate.
     dtype
         Optional canonical dtype. When omitted, it is inferred from ``value``.
 
@@ -524,13 +529,21 @@ def constant(
         A deterministic expression containing a read-only NumPy value.
     """
 
-    resolved_dtype = DataType.infer(value) if dtype is None else dtype
-    layout = PlateLayout.wrap(plates)
+    source = np.asarray(value)
+    declared_plates = (plates,) if isinstance(plates, str) else tuple(plates)
+    layout = PlateLayout.wrap(declared_plates)
+    if source.ndim != len(declared_plates):
+        raise ValueValidationError(
+            f"data.ndim = {source.ndim} != len(plates) = {len(declared_plates)}"
+        )
+    permutation = tuple(declared_plates.index(plate) for plate in layout)
+    canonical_value = np.transpose(source, axes=permutation)
+    resolved_dtype = DataType.infer(canonical_value) if dtype is None else dtype
     return Constant(
         ConcreteValue.wrap(
-            data=value,
+            data=canonical_value,
             layout=layout,
-            meta=ValueMeta.from_value(value, resolved_dtype),
+            meta=ValueMeta.from_value(canonical_value, resolved_dtype),
         )
     )
 

@@ -20,7 +20,8 @@ inference framework.
 graph preserves:
 
 - which values are sampled and which operations are deterministic;
-- where independent replication is introduced;
+- which distribution output plates receive conditionally independent draws;
+- where existing values are broadcast over new plates;
 - which named plates are preserved, checked, or reduced;
 - which sampling phase owns each unresolved distribution;
 - structural equality independently from resolved stochastic sharing; and
@@ -35,21 +36,28 @@ compilation, or multiple numeric backends.
 from stoch_ir import Normal, sampling_phase, softplus
 
 with sampling_phase("latent"):
-    weights = Normal(0.0, 1.0, rng_label="weights").add_plates("layer")
+    weights = Normal(
+        0.0,
+        1.0,
+        plates="layer",
+        rng_label="weights",
+    )
 
 with sampling_phase("observation"):
     activations = Normal(
         mu=weights,
         sigma=softplus(weights) + 0.1,
+        plates=("layer", "batch"),
         rng_label="activations",
-    ).add_plates("batch", expect=("layer",))
+    )
 
 layer_score = activations.mean("batch").check_plates("layer")
 ```
 
-`add_plates(..., expect=...)` states both sides of the structural change:
-`activations` must already vary over `"layer"`, and the operation intentionally
-introduces independent samples over `"batch"`.
+The distribution's `plates=` argument is its complete output layout. Its
+parameters may use any subset of that layout, so `weights` is shared across
+`"batch"` while `activations` receives a conditionally independent draw at
+every `("layer", "batch")` coordinate.
 
 The same graph can be realized in stages:
 
@@ -81,16 +89,12 @@ followed by an explicit reduction:
 from stoch_ir import Normal
 
 # left varies over {"row", "inner"}
-left = Normal(0.0, 1.0).add_plates("row", "inner")
+left = Normal(0.0, 1.0, plates=("row", "inner"))
 
 # right varies over {"inner", "col"}
-right = Normal(0.0, 1.0).add_plates("inner", "col")
+right = Normal(0.0, 1.0, plates=("inner", "col"))
 
-product = (
-    (left * right)
-    .sum("inner")
-    .check_plates("row", "col")
-)
+product = (left * right).sum("inner").check_plates("row", "col")
 ```
 
 This replaces an implicit `left @ right` contraction with source code that
@@ -106,12 +110,12 @@ v0.1 includes normal, arbitrary-bound continuous uniform, and Bernoulli draws:
 from stoch_ir import Bernoulli, Uniform, sampling_phase
 
 with sampling_phase("probability"):
-    probability = Uniform().add_plates("group")
+    probability = Uniform(plates="group")
 
 with sampling_phase("trial"):
-    trial = Bernoulli(probability).add_plates(
-        "trial",
-        expect=("group",),
+    trial = Bernoulli(
+        probability,
+        plates=("group", "trial"),
     )
 
 rate = trial.mean("trial").check_plates("group")
@@ -132,14 +136,18 @@ offset = constant(
 
 `constant` infers Boolean, integer, or floating metadata and stores values
 canonically as `np.bool_`, `np.int64`, or `np.float64`. Complex, object, string,
-and unnamed multidimensional values are rejected.
+and unnamed multidimensional values are rejected. Declared plate order follows
+the input array axes; storage is transposed when necessary into canonical
+lexicographic order. A bare string such as `plates="group"` denotes one plate.
 
 ## Plate algebra
 
 Plate names are strings. Sizes are supplied only when a graph is materialized.
 The public operations are deliberately small:
 
-- `add_plates(*new, expect=None)` introduces independent replication;
+- distribution `plates=` declares the complete conditionally independent
+  sampling layout;
+- `add_plates(*new, expect=None)` broadcasts an existing value over new plates;
 - `check_plates(*expected)` validates the complete plate set;
 - `reduce_plates(*plates, reduction=...)` explicitly contracts plates; and
 - `mean`, `sum`, `max`, `min`, `prod`, and `logsumexp` provide named

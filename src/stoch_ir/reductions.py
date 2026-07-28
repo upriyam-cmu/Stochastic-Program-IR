@@ -7,4 +7,4 @@ not a supported v0.1 extension point.
 
 from .expr.ops.reduction import LOGSUMEXP, MAX, MEAN, MIN, PROD, SUM, Reduction
 
-__all__ = ["LOGSUMEXP", "MAX", "MEAN", "MIN", "PROD", "Reduction", "SUM"]
+__all__ = ["LOGSUMEXP", "MAX", "MEAN", "MIN", "PROD", "SUM", "Reduction"]

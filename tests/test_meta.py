@@ -26,6 +26,7 @@ class PlateLayoutTests(unittest.TestCase):
         self.assertEqual(layout.plates, ("batch", "row"))
         self.assertEqual(layout.axis("batch"), 0)
         self.assertEqual(layout.axis("row"), 1)
+        self.assertEqual(PlateLayout.wrap("row").plates, ("row",))
 
     def test_wrap_rejects_duplicate_plates(self) -> None:
         with self.assertRaises(DuplicatePlateError):
@@ -162,13 +163,23 @@ class ConcreteValueTests(unittest.TestCase):
 
     def test_constant_boundary_infers_dtype_and_named_layout(self) -> None:
         scalar = constant(3)
-        vector = constant(np.array([1, 2], dtype=np.int8), plates=("row",))
+        vector = constant(np.array([1, 2], dtype=np.int8), plates="row")
         explicit = constant(1, dtype=DataType.FLOAT)
 
         self.assertIs(scalar.value_meta.dtype, DataType.INT)
         self.assertEqual(vector.plate_layout.plates, ("row",))
         self.assertEqual(vector.realize(plate_sizes={"row": 2}).data.dtype, np.int64)
         self.assertEqual(explicit.realize().data.dtype, np.float64)
+
+    def test_constant_transposes_declared_axes_into_canonical_order(self) -> None:
+        source = np.arange(6).reshape(2, 3)
+        value = constant(source, plates=("row", "inner")).realize(
+            plate_sizes={"row": 2, "inner": 3},
+        )
+
+        self.assertEqual(value.plates, ("inner", "row"))
+        self.assertEqual(value.shape, (3, 2))
+        np.testing.assert_array_equal(value.data, source.T)
 
     def test_multidimensional_constant_requires_named_plates(self) -> None:
         with self.assertRaises(ValueValidationError):

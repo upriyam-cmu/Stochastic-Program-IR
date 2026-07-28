@@ -1,18 +1,23 @@
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 
 import numpy as np
 from typing_extensions import Self, override
 
-from ....errors import RngLabelError, UnrealizedGraphError, UnresolvedRandomnessError
+from ....errors import (
+    PlateExpectationError,
+    RngLabelError,
+    UnrealizedGraphError,
+    UnresolvedRandomnessError,
+)
 from ....rng import (
     NodeEntropy,
     RngLabel,
     Seed,
     derive_sampling_seed,
 )
-from ...meta import ConcreteValue, Phase, PlateLayout, PlateSizes
+from ...meta import ConcreteValue, Phase, Plate, PlateLayout, PlateSizes
 from ..base import RandomVariable, rv_impl
 
 
@@ -30,6 +35,7 @@ class RandomDistributionNode(RandomVariable, ABC):
     rng_label: RngLabel | None
     _node_entropy: NodeEntropy | None
     _sampling_seed: Seed | None
+    output_layout: PlateLayout
 
     def __post_init__(self) -> None:
         if self.rng_label is not None and (
@@ -37,6 +43,18 @@ class RandomDistributionNode(RandomVariable, ABC):
         ):
             raise RngLabelError("rng_label must be None or a non-empty string")
         super().__post_init__()
+        for dependency in self._dependency_slots:
+            extra = dependency.var.plate_layout.as_set - self.output_layout.as_set
+            if extra:
+                raise PlateExpectationError(
+                    f"{type(self).__name__} parameter {dependency.name!r} has "
+                    f"plates {dependency.var.plates}, which are not contained in "
+                    f"output plates {self.output_layout.plates}: {sorted(extra)}"
+                )
+
+    @override
+    def _compute_plate_layout(self) -> PlateLayout:
+        return self.output_layout
 
     @override
     def _compute_pending_phases(self) -> frozenset[str]:
@@ -91,3 +109,14 @@ class RandomDistributionNode(RandomVariable, ABC):
         raise UnrealizedGraphError(
             "a distribution must be sampled rather than deterministically evaluated"
         )
+
+
+def resolve_output_layout(
+    dependencies: Iterable[RandomVariable],
+    plates: Iterable[Plate] | None,
+) -> PlateLayout:
+    """Resolve a distribution's complete output layout."""
+
+    if plates is not None:
+        return PlateLayout.wrap(plates)
+    return PlateLayout.union(*(dependency.plate_layout for dependency in dependencies))

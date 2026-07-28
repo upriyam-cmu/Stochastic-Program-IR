@@ -33,17 +33,13 @@ from ..errors import (
 from ..rng import Seed, resolve_run_seed
 from .hashing import resolve_stochastic_hashes, stamp_node_entropies
 from .meta import (
-    EMPTY_PLATE_LAYOUT,
     ConcreteValue,
     Phase,
     Plate,
-    PlateLayout,
     PlateSizes,
 )
 from .nodes.base import Constant, RandomVariable
 from .nodes.distr.base import RandomDistributionNode
-from .nodes.ops import ReductionOpNode
-from .nodes.shape import AddPlatesNode, add_plates
 
 
 def _all_nodes(root: RandomVariable) -> tuple[RandomVariable, ...]:
@@ -130,13 +126,6 @@ def _ensure_resolved(root: RandomVariable) -> None:
         )
 
 
-def _missing_layout(
-    requested: PlateLayout,
-    current: PlateLayout,
-) -> PlateLayout:
-    return PlateLayout.wrap(requested.as_set - current.as_set)
-
-
 def _constant_value(
     node: Constant,
     plate_sizes: PlateSizes,
@@ -196,48 +185,15 @@ def _materialize_node(
     run_seed: Seed,
     plate_sizes: PlateSizes,
     enabled_phases: frozenset[Phase] | None,
-    lifted_layout: PlateLayout = EMPTY_PLATE_LAYOUT,
-    memo: dict[tuple[int, tuple[Plate, ...]], RandomVariable],
+    memo: dict[int, RandomVariable],
 ) -> RandomVariable:
-    memo_key = (id(node), lifted_layout.plates)
+    memo_key = id(node)
     if memo_key in memo:
         return memo[memo_key]
 
-    # AddPlates is lifted into downstream values and sampling shapes rather
-    # than retained around a materialized constant.
-    if isinstance(node, AddPlatesNode):
-        combined_lift = lifted_layout + node.added_plates
-        result = _materialize_node(
-            node.arg,
-            run_seed=run_seed,
-            plate_sizes=plate_sizes,
-            enabled_phases=enabled_phases,
-            lifted_layout=combined_lift,
-            memo=memo,
-        )
-        memo[memo_key] = result
-        return result
-
     if isinstance(node, Constant):
-        value = _constant_value(node, plate_sizes)
-        if not lifted_layout:
-            result = node
-        else:
-            target_layout = node.plate_layout | lifted_layout
-            result = Constant(
-                ConcreteValue.wrap(
-                    add_plates(
-                        value.data,
-                        old_layout=node.plate_layout,
-                        new_layout=target_layout,
-                        plate_sizes=plate_sizes,
-                    ),
-                    target_layout,
-                    node.value_meta,
-                )
-            )
-        memo[memo_key] = result
-        return result
+        memo[memo_key] = node
+        return node
 
     if isinstance(node, RandomDistributionNode):
         dependency_changes = {
@@ -262,7 +218,7 @@ def _materialize_node(
         if phase_enabled and rebuilt._sampling_seed is None:
             rebuilt = rebuilt.bind_sampling_seed(run_seed)
 
-        output_layout = rebuilt.plate_layout | lifted_layout
+        output_layout = rebuilt.plate_layout
         dependencies = _concrete_dependencies(rebuilt, plate_sizes)
         if rebuilt._sampling_seed is not None and dependencies is not None:
             rng = np.random.default_rng(rebuilt._sampling_seed)
@@ -279,22 +235,9 @@ def _materialize_node(
                 )
             )
         else:
-            missing_lift = _missing_layout(lifted_layout, rebuilt.plate_layout)
-            result = AddPlatesNode(rebuilt, missing_lift) if missing_lift else rebuilt
+            result = rebuilt
         memo[memo_key] = result
         return result
-
-    # Lifting a plate through a reduction is valid only when the reduction's
-    # original argument did not already use that name. The lifted dimension is
-    # external to the reduction and therefore must survive it.
-    if (
-        isinstance(node, ReductionOpNode)
-        and lifted_layout.as_set & node.arg.plate_layout.as_set
-    ):
-        raise ValueError(
-            "cannot lift a plate through a reduction that already uses "
-            "the same plate name"
-        )
 
     dependency_changes = {
         dependency.name: _materialize_node(
@@ -302,7 +245,6 @@ def _materialize_node(
             run_seed=run_seed,
             plate_sizes=plate_sizes,
             enabled_phases=enabled_phases,
-            lifted_layout=lifted_layout,
             memo=memo,
         )
         for dependency in node._dependency_slots

@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 
 import numpy as np
@@ -11,6 +11,7 @@ from ...meta import (
     ConcreteValue,
     DataType,
     Phase,
+    Plate,
     PlateLayout,
     PlateSizes,
     ValueMeta,
@@ -23,7 +24,7 @@ from ..base import (
     as_random_variable,
     rv_impl,
 )
-from .base import RandomDistributionNode
+from .base import RandomDistributionNode, resolve_output_layout
 
 
 @rv_impl
@@ -38,16 +39,23 @@ class Gaussian(RandomDistributionNode):
         mu: ExprInput,
         sigma: ExprInput,
         *,
+        plates: Iterable[Plate] | None = None,
         rng_label: RngLabel | None = None,
         phase_requirement: Phase = None,
     ) -> "Gaussian":
+        resolved_mu = as_random_variable(mu)
+        resolved_sigma = as_random_variable(sigma)
         return Gaussian(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
             _node_entropy=None,
             _sampling_seed=None,
-            mu=as_random_variable(mu),
-            sigma=as_random_variable(sigma),
+            output_layout=resolve_output_layout(
+                (resolved_mu, resolved_sigma),
+                plates,
+            ),
+            mu=resolved_mu,
+            sigma=resolved_sigma,
         )
 
     @override
@@ -66,10 +74,6 @@ class Gaussian(RandomDistributionNode):
         )
 
     @override
-    def _compute_plate_layout(self) -> PlateLayout:
-        return self.mu.plate_layout | self.sigma.plate_layout
-
-    @override
     def _compute_value_meta(self) -> ValueMeta:
         if self.sigma.value_meta.support in (
             ValueSupport.REAL,
@@ -82,6 +86,7 @@ class Gaussian(RandomDistributionNode):
     def structurally_equal(self, other: RandomVariable) -> bool:
         return (
             isinstance(other, Gaussian)
+            and self.output_layout == other.output_layout
             and self.mu.structurally_equal(other.mu)
             and self.sigma.structurally_equal(other.sigma)
         )
@@ -116,9 +121,10 @@ class Gaussian(RandomDistributionNode):
 
 
 def Normal(
-    mu: RandomVariable | bool | int | float,
-    sigma: RandomVariable | bool | int | float,
+    mu: RandomVariable | bool | float,
+    sigma: RandomVariable | bool | float,
     *,
+    plates: Iterable[Plate] | None = None,
     rng_label: RngLabel | None = None,
 ) -> RandomVariable:
     """Create a univariate normal random variable.
@@ -129,18 +135,22 @@ def Normal(
         Symbolic or scalar location.
     sigma
         Symbolic or scalar strictly positive scale.
+    plates
+        Complete output plate layout. When omitted, the union of parameter
+        plates is used.
     rng_label
         Optional semantic label mixed into graph-derived node entropy.
 
     Returns
     -------
     RandomVariable
-        A symbolic normal draw with the union of parameter plates.
+        A symbolic normal draw with the resolved complete output plates.
     """
 
     return Gaussian.wrap(
         mu,
         sigma,
+        plates=plates,
         rng_label=rng_label,
         phase_requirement=_current_sampling_phase(),
     )

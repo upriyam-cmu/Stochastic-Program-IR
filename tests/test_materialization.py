@@ -29,9 +29,11 @@ from stoch_ir.rng import NodeEntropy
 
 class MaterializationTests(unittest.TestCase):
     def test_plate_sampling_is_repeatable_for_seed_and_label(self) -> None:
-        expr = Normal(0, 1, rng_label="weights").add_plates(
-            "row",
-            expect=(),
+        expr = Normal(
+            0,
+            1,
+            plates="row",
+            rng_label="weights",
         )
 
         first = expr.realize(seed=7, plate_sizes={"row": 4})
@@ -44,10 +46,7 @@ class MaterializationTests(unittest.TestCase):
         with sampling_phase("latent"):
             latent = Normal(0, 1)
         with sampling_phase("observation"):
-            observation = Normal(latent, 1).add_plates(
-                "row",
-                expect=(),
-            )
+            observation = Normal(latent, 1, plates="row")
 
         checkpoint = observation.materialize(
             seed=1,
@@ -203,6 +202,18 @@ class MaterializationTests(unittest.TestCase):
             right_hashes.node_entropy_for(right),
         )
 
+    def test_distribution_output_plates_affect_graph_hashes(self) -> None:
+        row = Normal(0, 1, plates="row")
+        col = Normal(0, 1, plates="col")
+
+        row_hashes = resolve_stochastic_hashes(row)
+        col_hashes = resolve_stochastic_hashes(col)
+
+        self.assertNotEqual(
+            row_hashes.for_node(row).final,
+            col_hashes.for_node(col).final,
+        )
+
     def test_aliases_share_one_projected_stochastic_node(self) -> None:
         with sampling_phase("draw"):
             shared = Normal(0, 1)
@@ -240,7 +251,7 @@ class MaterializationTests(unittest.TestCase):
             checkpoint.value()
 
     def test_completed_checkpoint_retains_source_graph_plate_sizes(self) -> None:
-        expr = Normal(0, 1).add_plates("col", "row").mean("col")
+        expr = Normal(0, 1, plates=("col", "row")).mean("col")
         checkpoint = expr.materialize(
             seed=1,
             plate_sizes={"col": 3, "row": 2},
@@ -255,7 +266,7 @@ class MaterializationTests(unittest.TestCase):
         self.assertEqual(value.shape, (2,))
 
     def test_materialization_requires_valid_sizes_for_every_plate(self) -> None:
-        expr = Normal(0, 1).add_plates("row")
+        expr = Normal(0, 1, plates="row")
 
         with self.assertRaises(MissingPlateSizeError):
             expr.realize(seed=1)
@@ -270,14 +281,10 @@ class MaterializationTests(unittest.TestCase):
                 )
 
     def test_checkpoint_sizes_are_fixed(self) -> None:
-        checkpoint = (
-            Normal(0, 1)
-            .add_plates("row")
-            .materialize(
-                seed=1,
-                plate_sizes={"row": 2},
-                phases=(),
-            )
+        checkpoint = Normal(0, 1, plates="row").materialize(
+            seed=1,
+            plate_sizes={"row": 2},
+            phases=(),
         )
 
         with self.assertRaises(PlateSizeMismatchError):
@@ -313,50 +320,30 @@ class MaterializationTests(unittest.TestCase):
         )
 
     def test_stochastic_equality_checks_seeds_sizes_and_structure(self) -> None:
-        left = (
-            Normal(0, 1)
-            .add_plates("row")
-            .materialize(
-                seed=1,
-                plate_sizes={"row": 2},
-                phases=(),
-            )
+        left = Normal(0, 1, plates="row").materialize(
+            seed=1,
+            plate_sizes={"row": 2},
+            phases=(),
         )
-        same = (
-            Normal(0, 1)
-            .add_plates("row")
-            .materialize(
-                seed=1,
-                plate_sizes={"row": 2},
-                phases=(),
-            )
+        same = Normal(0, 1, plates="row").materialize(
+            seed=1,
+            plate_sizes={"row": 2},
+            phases=(),
         )
-        different_seed = (
-            Normal(0, 1)
-            .add_plates("row")
-            .materialize(
-                seed=2,
-                plate_sizes={"row": 2},
-                phases=(),
-            )
+        different_seed = Normal(0, 1, plates="row").materialize(
+            seed=2,
+            plate_sizes={"row": 2},
+            phases=(),
         )
-        different_size = (
-            Normal(0, 1)
-            .add_plates("row")
-            .materialize(
-                seed=1,
-                plate_sizes={"row": 3},
-                phases=(),
-            )
+        different_size = Normal(0, 1, plates="row").materialize(
+            seed=1,
+            plate_sizes={"row": 3},
+            phases=(),
         )
-        different_graph = (
-            Normal(1, 1)
-            .add_plates("row")
-            .materialize(
-                seed=1,
-                plate_sizes={"row": 2},
-                phases=(),
-            )
+        different_graph = Normal(1, 1, plates="row").materialize(
+            seed=1,
+            plate_sizes={"row": 2},
+            phases=(),
         )
 
         self.assertTrue(left.stochastically_equal(same))
@@ -366,11 +353,41 @@ class MaterializationTests(unittest.TestCase):
         self.assertFalse(left.stochastically_equal(cast(Any, object())))
         self.assertFalse(left.structurally_equal(cast(Any, object())))
 
-    def test_same_plate_cannot_be_lifted_across_reduction(self) -> None:
-        expr = Normal(0, 1).add_plates("row").mean("row").add_plates("row")
+    def test_reduced_plate_can_be_reintroduced_by_broadcasting(self) -> None:
+        expr = Normal(0, 1, plates="row").mean("row").add_plates("row")
 
-        with self.assertRaisesRegex(ValueError, "cannot lift a plate"):
-            expr.materialize(seed=1, plate_sizes={"row": 2})
+        value = expr.realize(seed=1, plate_sizes={"row": 3})
+
+        self.assertEqual(value.plates, ("row",))
+        self.assertEqual(value.shape, (3,))
+        np.testing.assert_array_equal(value.data, np.full(3, value.data[0]))
+
+    def test_add_plates_broadcasts_one_sample(self) -> None:
+        expr = Normal(0, 1).add_plates("row")
+
+        value = expr.realize(seed=1, plate_sizes={"row": 4})
+
+        np.testing.assert_array_equal(value.data, np.full(4, value.data[0]))
+
+    def test_distribution_plates_create_independent_samples(self) -> None:
+        expr = Normal(0, 1, plates="row")
+
+        value = expr.realize(seed=1, plate_sizes={"row": 4})
+
+        self.assertGreater(np.unique(value.data).size, 1)
+
+    def test_aliases_broadcast_over_different_plates_without_rng_coupling(
+        self,
+    ) -> None:
+        source = Normal(0, 1)
+        expr = source.add_plates("row") - source.add_plates("col")
+
+        value = expr.realize(
+            seed=1,
+            plate_sizes={"row": 3, "col": 4},
+        )
+
+        np.testing.assert_array_equal(value.data, np.zeros((4, 3)))
 
     def test_invalid_materialization_phase_does_not_mutate_source(self) -> None:
         with sampling_phase("draw"):
@@ -386,8 +403,8 @@ def test_v01_hash_digest_fixture() -> None:
     second = Normal(first + first, 1)
     hashes = resolve_stochastic_hashes(second)
 
-    assert hashes.for_node(first).final.hex() == "4a890d83d18a6cdc2d9156b7e22654f5"
-    assert hashes.for_node(second).final.hex() == "7941df446f33b97d2a8de3944ec0f0df"
+    assert hashes.for_node(first).final.hex() == "8374705384dc9f224cb5000969433b72"
+    assert hashes.for_node(second).final.hex() == "b4230971a6bddec783123c532eac5a84"
 
 
 def test_hash_digest_is_stable_across_python_hash_seeds() -> None:

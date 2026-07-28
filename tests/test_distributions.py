@@ -13,6 +13,7 @@ from stoch_ir import (
 )
 from stoch_ir.errors import (
     InvalidSupportError,
+    PlateExpectationError,
     RngLabelError,
 )
 
@@ -46,7 +47,7 @@ def test_uniform_support_is_conservative(
 def test_uniform_symbolic_bounds_align_named_plates() -> None:
     low = constant(np.array([0.0, 10.0]), plates=("row",))
     high = constant(np.array([1.0, 11.0]), plates=("row",))
-    expr = Uniform(low, high).add_plates("col", expect=("row",))
+    expr = Uniform(low, high, plates=("row", "col"))
 
     first = expr.realize(seed=7, plate_sizes={"row": 2, "col": 4})
     second = expr.realize(seed=7, plate_sizes={"row": 2, "col": 4})
@@ -87,8 +88,14 @@ def test_bernoulli_has_boolean_unit_interval_output() -> None:
 
 
 def test_bernoulli_extreme_probabilities_are_exact() -> None:
-    zero = Bernoulli(0).add_plates("trial").realize(seed=1, plate_sizes={"trial": 8})
-    one = Bernoulli(1).add_plates("trial").realize(seed=1, plate_sizes={"trial": 8})
+    zero = Bernoulli(0, plates="trial").realize(
+        seed=1,
+        plate_sizes={"trial": 8},
+    )
+    one = Bernoulli(1, plates="trial").realize(
+        seed=1,
+        plate_sizes={"trial": 8},
+    )
 
     assert not np.any(zero.data)
     assert np.all(one.data)
@@ -96,7 +103,7 @@ def test_bernoulli_extreme_probabilities_are_exact() -> None:
 
 def test_bernoulli_plated_probabilities_and_mean_reduction() -> None:
     p = constant(np.array([0.0, 1.0]), plates=("group",))
-    expr = Bernoulli(p).add_plates("trial", expect=("group",))
+    expr = Bernoulli(p, plates=("group", "trial"))
 
     rates = expr.mean("trial").realize(
         seed=5,
@@ -119,6 +126,22 @@ def test_bernoulli_rewrites_symbolic_dependency() -> None:
     rewritten = expr._rewrite_dependencies_exact({"p": constant(0.8)})
 
     assert rewritten.structurally_equal(Bernoulli(0.8))
+
+
+def test_distribution_output_plates_must_contain_parameter_plates() -> None:
+    row = constant(np.array([0.0, 1.0]), plates="row")
+
+    assert Normal(row, 1).plates == ("row",)
+    assert Normal(row, 1).structurally_equal(Normal(row, 1, plates="row"))
+    with pytest.raises(PlateExpectationError, match="parameter 'mu'"):
+        Normal(row, 1, plates="col")
+
+
+def test_explicit_distribution_plates_are_structural() -> None:
+    row = Normal(0, 1, plates="row")
+    col = Normal(0, 1, plates="col")
+
+    assert not row.structurally_equal(col)
 
 
 @pytest.mark.parametrize("label", ["", 1])

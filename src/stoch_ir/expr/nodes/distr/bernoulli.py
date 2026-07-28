@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 
 import numpy as np
@@ -11,13 +11,14 @@ from ...meta import (
     ConcreteValue,
     DataType,
     Phase,
+    Plate,
     PlateLayout,
     PlateSizes,
     ValueMeta,
     ValueSupport,
 )
 from ..base import Dependency, ExprInput, RandomVariable, as_random_variable, rv_impl
-from .base import RandomDistributionNode
+from .base import RandomDistributionNode, resolve_output_layout
 
 
 @rv_impl
@@ -30,15 +31,18 @@ class BernoulliDistribution(RandomDistributionNode):
     def wrap(
         p: ExprInput,
         *,
+        plates: Iterable[Plate] | None = None,
         rng_label: RngLabel | None = None,
         phase_requirement: Phase = None,
     ) -> "BernoulliDistribution":
+        resolved_p = as_random_variable(p)
         return BernoulliDistribution(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
             _node_entropy=None,
             _sampling_seed=None,
-            p=as_random_variable(p),
+            output_layout=resolve_output_layout((resolved_p,), plates),
+            p=resolved_p,
         )
 
     @override
@@ -53,10 +57,6 @@ class BernoulliDistribution(RandomDistributionNode):
         return replace(self, p=dependencies["p"])
 
     @override
-    def _compute_plate_layout(self) -> PlateLayout:
-        return self.p.plate_layout
-
-    @override
     def _compute_value_meta(self) -> ValueMeta:
         return ValueMeta(
             dtype=DataType.BOOL,
@@ -65,8 +65,10 @@ class BernoulliDistribution(RandomDistributionNode):
 
     @override
     def structurally_equal(self, other: RandomVariable) -> bool:
-        return isinstance(other, BernoulliDistribution) and self.p.structurally_equal(
-            other.p
+        return (
+            isinstance(other, BernoulliDistribution)
+            and self.output_layout == other.output_layout
+            and self.p.structurally_equal(other.p)
         )
 
     @override
@@ -92,8 +94,9 @@ class BernoulliDistribution(RandomDistributionNode):
 
 
 def Bernoulli(
-    p: RandomVariable | bool | int | float,
+    p: RandomVariable | bool | float,
     *,
+    plates: Iterable[Plate] | None = None,
     rng_label: RngLabel | None = None,
 ) -> RandomVariable:
     """Create an elementwise Bernoulli random variable.
@@ -103,17 +106,21 @@ def Bernoulli(
     p
         Symbolic or scalar success probability in the closed interval
         ``[0, 1]``.
+    plates
+        Complete output plate layout. When omitted, the parameter plates are
+        used.
     rng_label
         Optional semantic label mixed into graph-derived node entropy.
 
     Returns
     -------
     RandomVariable
-        A symbolic Boolean draw with the probability's plates.
+        A symbolic Boolean draw with the resolved complete output plates.
     """
 
     return BernoulliDistribution.wrap(
         p,
+        plates=plates,
         rng_label=rng_label,
         phase_requirement=_current_sampling_phase(),
     )

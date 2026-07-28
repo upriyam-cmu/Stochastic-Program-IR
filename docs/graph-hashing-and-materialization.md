@@ -89,6 +89,7 @@ For each distribution node `v`, the pass computes four values.
 
 - the v0.1 hash-scheme domain;
 - the distribution implementation type;
+- the distribution's complete output plate layout;
 - for each projected stochastic input, in canonical dependency-name order:
   - parameter name;
   - occurrence ordinal;
@@ -134,15 +135,16 @@ never digest inputs.
 The graph-structure hash excludes:
 
 - deterministic operator kinds and constants;
-- plate layouts and plate operations;
+- deterministic plate operations;
 - phase names and barriers;
 - user-facing RNG labels.
 
-These exclusions keep stochastic addresses stable across changes that do not
-alter the projected stochastic relationships. They are not claims of full graph
-equivalence. Structural equality separately compares deterministic nodes,
-constants, and plate operations; checkpoint stochastic equality separately
-compares phase and RNG-resolution state.
+A distribution's complete output plate layout is included because it determines
+where draws occur. The exclusions keep stochastic addresses stable across other
+changes that do not alter the projected stochastic relationships. They are not
+claims of full graph equivalence. Structural equality separately compares
+deterministic nodes, constants, and plate operations; checkpoint stochastic
+equality separately compares phase and RNG-resolution state.
 
 The user-facing `rng_label` is mixed after structural hashing:
 
@@ -216,10 +218,10 @@ After recursively rewriting dependencies:
   `_evaluate_concrete(...)` hook and becomes a `Constant`;
 - an unresolved node is rebuilt around its rewritten dependencies.
 
-`AddPlates` is handled as stochastic lifting: its plate layout propagates toward
-the stochastic frontier and into concrete broadcasting. Reduction nodes protect
-against incorrectly lifting an identically named external plate through an
-existing reduction.
+`AddPlates` is handled like every other deterministic node: its child is
+materialized according to the child's own layout, then the resulting value is
+broadcast over the added plates. Independent replication belongs only to the
+complete output layout stored on a distribution node.
 
 The result is wrapped in `SamplingCheckpoint`, which exposes:
 
@@ -240,7 +242,7 @@ The following are intentionally not generalized in this slice:
 - detaching an internal rewritten graph from a checkpoint;
 - lowering parameterized distributions to standardized base distributions;
 - alternate numeric backends;
-- hashing plates, phases, or deterministic operations;
+- hashing phases or deterministic operations;
 - public standalone RNG-resolution passes.
 
 These can be reconsidered only after the current authoring, equality, and staged

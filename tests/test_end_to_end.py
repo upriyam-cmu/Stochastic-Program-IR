@@ -42,11 +42,12 @@ def test_hierarchical_row_column_gaussian_example() -> None:
 
 def test_fixed_latent_can_feed_independently_resampled_observations() -> None:
     with sampling_phase("latent"):
-        latent = Normal(0, 1).add_plates("row")
+        latent = Normal(0, 1, plates="row")
     with sampling_phase("observation"):
-        observations = Normal(latent, 1).add_plates(
-            "replicate",
-            expect=("row",),
+        observations = Normal(
+            latent,
+            1,
+            plates=("row", "replicate"),
         )
 
     fixed = observations.materialize(
@@ -92,10 +93,7 @@ def test_named_numpy_constants_feed_stochastic_graph() -> None:
     low = constant(np.array([0.1, 0.4]), plates=("group",))
     high = constant(np.array([0.2, 0.9]), plates=("group",))
     probability = Uniform(low, high)
-    trials = Bernoulli(probability).add_plates(
-        "trial",
-        expect=("group",),
-    )
+    trials = Bernoulli(probability, plates=("group", "trial"))
 
     value = trials.realize(
         seed=9,
@@ -114,6 +112,24 @@ def test_named_plate_matrix_product_uses_explicit_contraction() -> None:
     assert value.plates == ("col", "row")
     assert value.shape == (4, 2)
     assert np.all(np.isfinite(value.data))
+
+
+def test_named_constant_matrix_product_matches_numpy() -> None:
+    left_data = np.arange(6.0).reshape(2, 3)
+    right_data = np.arange(12.0).reshape(3, 4)
+    left = constant(left_data, plates=("row", "inner"))
+    right = constant(right_data, plates=("inner", "col"))
+
+    value = (
+        (left * right)
+        .sum("inner")
+        .realize(
+            plate_sizes={"row": 2, "inner": 3, "col": 4},
+        )
+    )
+
+    assert value.plates == ("col", "row")
+    np.testing.assert_array_equal(value.data, (left_data @ right_data).T)
 
 
 def test_example_modules_are_directly_executable(capsys) -> None:

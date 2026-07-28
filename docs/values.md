@@ -28,4 +28,7 @@ offset = constant(
 after coercion.
 
 Multidimensional arrays require one named plate per axis. Complex, object, and
-string arrays are rejected.
+string arrays are rejected. The declared plate order corresponds to the input
+array's axis order; the boundary transposes data into canonical lexicographic
+plate order. A bare string such as `plates="group"` is one plate, not an
+iterable of characters.

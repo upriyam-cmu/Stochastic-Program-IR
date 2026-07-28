@@ -36,9 +36,9 @@ are internal.
 
 ```python
 constant(value, *, plates=(), dtype=None)
-Normal(mu, sigma, *, rng_label=None)
-Uniform(low=0.0, high=1.0, *, rng_label=None)
-Bernoulli(p, *, rng_label=None)
+Normal(mu, sigma, *, plates=None, rng_label=None)
+Uniform(low=0.0, high=1.0, *, plates=None, rng_label=None)
+Bernoulli(p, *, plates=None, rng_label=None)
 
 exp(expr)
 log(expr)
@@ -64,18 +64,25 @@ values. Metadata is authoritative and storage is canonical:
 | `DataType.FLOAT` | `np.float64` |
 
 Non-scalar rank must match the number of named plates. Complex, object, and
-string values are rejected.
+string values are rejected. Declared plate order maps to input array-axis order;
+concrete storage is transposed into canonical lexicographic order. Any
+iterable-valued plate argument also accepts a bare string as one plate.
+
+When distribution `plates` is omitted, the canonical union of parameter plates
+is used. When supplied, it is the complete output layout and must contain every
+parameter plate. The distribution produces one conditionally independent draw
+at each output coordinate.
 
 ## Expression inspection
 
 Every `RandomVariable` exposes:
 
 ```python
-expr.dependencies     # immutable Mapping[str, RandomVariable]
-expr.plates           # canonical tuple[str, ...]
-expr.pending_phases   # frozenset[str]
-expr.has_value        # bool
-expr.value_meta       # ValueMeta
+expr.dependencies  # immutable Mapping[str, RandomVariable]
+expr.plates  # canonical tuple[str, ...]
+expr.pending_phases  # frozenset[str]
+expr.has_value  # bool
+expr.value_meta  # ValueMeta
 ```
 
 Dependencies are name-sorted and preserve object aliasing in their values.
@@ -97,8 +104,9 @@ expr.prod(*plates)
 expr.logsumexp(*plates)
 ```
 
-`add_plates` introduces independent replication. If `expect` is supplied, the
-existing plate set must match exactly before the new plates are added.
+`add_plates` broadcasts an existing value without resampling it. If `expect` is
+supplied, the existing plate set must match exactly before the new plates are
+added.
 `check_plates` validates without changing the graph. Reductions explicitly
 remove named plates.
 

@@ -5,13 +5,10 @@ from stoch_ir import Bernoulli, Uniform, sampling_phase
 
 def build_model():
     with sampling_phase("probability"):
-        probability = Uniform().add_plates("group")
+        probability = Uniform(plates="group")
 
     with sampling_phase("trial"):
-        trial = Bernoulli(probability).add_plates(
-            "trial",
-            expect=("group",),
-        )
+        trial = Bernoulli(probability, plates=("group", "trial"))
 
     return trial.mean("trial").check_plates("group")
 

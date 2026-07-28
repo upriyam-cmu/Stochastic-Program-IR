@@ -40,7 +40,8 @@ Required work:
 - `reduce_plates` plus the six convenience reduction methods;
 - strictly positive materialization-time plate sizes;
 - alignment of concrete values by named plate order;
-- independent stochastic-frontier lifting through `AddPlates`, without resampling stochastic parameters;
+- complete output plate declarations on distribution nodes;
+- deterministic broadcasting through `AddPlates`;
 - the public plate error hierarchy.
 
 Acceptance checks:
@@ -50,15 +51,16 @@ Acceptance checks:
 - `check_plates` returns the same object;
 - reducing a missing plate fails;
 - `Normal(row_value, col_value)` aligns to logical `(row, col)`;
-- adding a plate to a distribution creates independent draws, not repeated values;
-- adding a plate to a conditional distribution does not implicitly resample its stochastic parameters;
-- adding a plate to a constant broadcasts the fixed value.
+- distribution output plates create conditionally independent draws;
+- distribution output plates must contain every parameter plate;
+- adding a plate to any expression broadcasts its existing value.
 
 Concrete-value work:
 
 - expose `constant(value, *, plates=(), dtype=None)`;
 - infer supported Boolean, integer, and floating inputs;
 - canonicalize storage to `np.bool_`, `np.int64`, or `np.float64`;
+- transpose declared input axes into canonical plate order;
 - derive and enforce four-state support after coercion;
 - reject unsupported kinds and rank/layout mismatches at the boundary.
 

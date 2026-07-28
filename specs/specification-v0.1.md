@@ -10,7 +10,7 @@ The product must make these relationships salient in source code and inspectable
 
 - stochastic dependencies;
 - shared versus independent samples;
-- plate introduction and reduction;
+- independent sampling, plate broadcasting, and reduction;
 - exact plate expectations at important boundaries;
 - sampling-phase membership;
 - partial versus complete materialization.
@@ -31,16 +31,21 @@ used as an operand in a new downstream expression.
 
 ### 2.2 Exact stochastic intent
 
-The API must not silently infer whether the caller intended to introduce, preserve, or remove a plate:
+The API must distinguish sampling from deterministic shape changes:
 
-- `add_plates` explicitly introduces independent replication;
+- distribution `plates=` specifies the complete layout over which draws occur;
+- `add_plates` explicitly broadcasts an existing value without resampling it;
 - `check_plates` explicitly validates the complete current plate set;
 - `reduce_plates` explicitly removes plates using a named reduction;
 - `add_plates(expect=...)` validates the complete pre-transformation plate set before adding the requested plates.
 
 ### 2.3 Orthogonal plates and phases
 
-Plates describe **where independent multiplicity exists**. Phases describe **when a distribution node may be sampled**. Neither changes the semantics of the other.
+Plates name array axes. A distribution's output plates describe **where
+conditionally independent draws occur**; deterministic plate operations may
+instead describe shared or computed values over those axes. Phases describe
+**when a distribution node may be sampled**. Neither changes the semantics of
+the other.
 
 ### 2.4 Numeric isolation
 
@@ -57,7 +62,8 @@ An immutable node in a symbolic DAG. Every public stochastic or deterministic op
 
 ### Plate
 
-A string identifier for an independent replication axis, such as `"batch"`, `"row"`, or `"particle"`.
+A string identifier for a named array axis, such as `"batch"`, `"row"`, or
+`"particle"`.
 
 Plate names do not contain sizes. Concrete sizes are supplied during materialization so the same graph can be realized at different extents.
 
@@ -92,6 +98,10 @@ sorts plate names lexicographically. `check_plates` compares canonical layouts
 and is therefore insensitive to the caller's argument order. Concrete
 `PlateLayout` and dependency reconstruction types are internal.
 
+An API parameter that accepts an iterable of plate names must also treat one
+bare string as a single plate. For example, `plates="row"` is equivalent to
+`plates=("row",)`.
+
 ### 4.1 Inputs and constants
 
 Python scalar inputs are automatically represented as plate-free constants. The
@@ -111,9 +121,11 @@ value must use canonical NumPy storage:
 
 Complex, object, and string values must be rejected. Support metadata is
 derived after boundary coercion, and values with explicitly narrower support
-must satisfy it. For a non-scalar constant, the number and order of declared
-plates must agree with its runtime rank at construction. Concrete constant
-nodes and their lower-level constructors are internal.
+must satisfy it. For a non-scalar constant, the number of declared plates must
+agree with its runtime rank at construction. Declared plate order maps directly
+to input array-axis order. The boundary transposes data as needed into canonical
+lexicographic plate order before storing it. Concrete constant nodes and their
+lower-level constructors are internal.
 
 ### 4.2 Core node families
 
@@ -133,12 +145,17 @@ Validation calls do not create nodes.
 v0.1 must specify these distributions:
 
 ```python
-Normal(mu, sigma, *, rng_label=None)
-Uniform(low=0.0, high=1.0, *, rng_label=None)
-Bernoulli(p, *, rng_label=None)
+Normal(mu, sigma, *, plates=None, rng_label=None)
+Uniform(low=0.0, high=1.0, *, plates=None, rng_label=None)
+Bernoulli(p, *, plates=None, rng_label=None)
 ```
 
-Parameters accept expressions or scalar constants. A distribution's plates are the ordered union of its parameter plates plus any plates introduced around the expression through `add_plates`.
+Parameters accept expressions or scalar constants. When `plates` is omitted, a
+distribution's output layout is the canonical union of its parameter plates.
+When supplied, `plates` is the complete output layout, and every parameter's
+plates must be a subset of it. A parameter is broadcast over output plates it
+does not contain. The distribution makes one conditionally independent draw at
+every output coordinate.
 
 `rng_label` must be `None` or a non-empty string. It is optional human-readable entropy mixed into a node's
 graph-derived entropy. It never replaces the graph hash and cannot opt two
@@ -178,14 +195,16 @@ Floor division produces `FLOAT` metadata when either operand is floating and
 expr.add_plates(*plates, expect=None) -> Expr
 ```
 
-`add_plates` adds exactly the requested new independent replication plates.
+`add_plates` adds exactly the requested new plates by broadcasting the existing
+value. It never creates new random draws.
 
 Preconditions:
 
 - every plate must be a non-empty string;
 - no requested plate may occur more than once;
 - no requested plate may already exist on `expr`;
-- when `expect` is provided, `expr.plates` must exactly equal `frozenset(expect)` before any plate is added.
+- when `expect` is provided, `expr.plates` must have exact set equality with
+  `expect` before any plate is added.
 
 `expect` is validation sugar only:
 
@@ -200,10 +219,13 @@ expr.check_plates("feature").add_plates("batch")
 ```
 
 The returned graph contains only an `AddPlates` node, never a validation node.
+During materialization, the child expression is evaluated or sampled according
+to its own layout and the resulting value is then broadcast over the new
+plates.
 
-An `AddPlates` node is a stochastic lifting operation, not a numeric repeat. During materialization, newly introduced plates propagate through deterministic nodes to the stochastic frontier of the child expression. Each distribution reached at that frontier samples independently across the new plates, and propagation stops there: stochastic distribution parameters retain their own plates and are aligned or broadcast rather than implicitly resampled. A deterministic constant with no stochastic frontier is broadcast.
-
-For example, `Normal(mu=x, sigma=1).add_plates("col")` draws a new conditional `Normal` value for each `"col"`, but it does not resample a stochastic `x` separately for each column unless `x` itself was explicitly given that plate.
+For example, `Normal(0, 1).add_plates("col")` draws once and repeats that value
+over `"col"`, whereas `Normal(0, 1, plates="col")` draws independently for each
+column.
 
 ### 6.2 `check_plates`
 
@@ -243,7 +265,7 @@ Plate inference is local and recursive:
 | Node | Plate result |
 | --- | --- |
 | Constant | declared plates, empty for scalar constants |
-| Distribution | canonical union of parameter plates |
+| Distribution | explicit complete output plates, or canonical union of parameter plates when omitted |
 | UnaryOperator | child plates |
 | BinaryOperator | canonical union of left and right plates |
 | AddPlates | canonical union of child and newly added plates |
@@ -380,8 +402,8 @@ Only distribution nodes consume RNG state. Hash resolution therefore contracts
 constants, operators, plate nodes, and reductions into paths between
 distribution nodes. For each distribution `v`:
 
-- `D(v)` hashes its distribution type and the nearest upstream stochastic
-  nodes for every named parameter;
+- `D(v)` hashes its distribution type, complete output plate layout, and the
+  nearest upstream stochastic nodes for every named parameter;
 - every projected input edge retains its parameter name and an occurrence
   ordinal, so consuming one node twice differs from consuming it once;
 - `C(v)` hashes the sorted multiset of direct stochastic consumers of `v`,
@@ -395,8 +417,9 @@ The root contributes synthetic output-consumer edges for its stochastic
 frontier. Dependency names are canonicalized lexicographically; allocation IDs
 are used only for in-process memoization and never enter a digest.
 
-Deterministic operator kinds, constant values, plate metadata, phase metadata,
-and RNG labels intentionally do not affect the graph-structure hash. Labels are
+Deterministic operator kinds, constant values, deterministic plate operations,
+phase metadata, and RNG labels intentionally do not affect the graph-structure
+hash. A distribution's complete output plate layout does affect it. Labels are
 mixed only afterward when deriving node entropy.
 
 Required behavior:
@@ -492,14 +515,15 @@ v0.1 excludes:
 
 ```python
 with sampling_phase("latent"):
-    x = Normal(0.0, 1.0, rng_label="x").add_plates("row")
+    x = Normal(0.0, 1.0, plates="row", rng_label="x")
 
 with sampling_phase("observation"):
     y = Normal(
         mu=x,
         sigma=1.0,
+        plates=("row", "col"),
         rng_label="y",
-    ).add_plates("col", expect=("row",))
+    )
 
 z = y.mean("col").check_plates("row")
 
