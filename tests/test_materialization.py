@@ -7,23 +7,23 @@ from typing import Any, cast
 
 import numpy as np
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Normal,
     RandomVariable,
     SamplingCheckpoint,
     sampling_phase,
 )
-from stochastic_programming_library.expr.hashing import (
+from stoch_ir.expr.hashing import (
     resolve_stochastic_hashes,
 )
-from stochastic_programming_library.errors import (
+from stoch_ir.errors import (
     MissingPlateSizeError,
     PhaseError,
     PlateSizeMismatchError,
     UnrealizedGraphError,
     UnresolvedRandomnessError,
 )
-from stochastic_programming_library.rng import NodeEntropy
+from stoch_ir.rng import NodeEntropy
 
 
 class MaterializationTests(unittest.TestCase):
@@ -383,15 +383,15 @@ def test_v01_hash_digest_fixture() -> None:
     second = Normal(first + first, 1)
     hashes = resolve_stochastic_hashes(second)
 
-    assert hashes.for_node(first).final.hex() == "e4f5c65164cd8e0c3330788b71a5a4cd"
-    assert hashes.for_node(second).final.hex() == "040ce51b2ab4b9d9353cf89c82079939"
+    assert hashes.for_node(first).final.hex() == "4a890d83d18a6cdc2d9156b7e22654f5"
+    assert hashes.for_node(second).final.hex() == "7941df446f33b97d2a8de3944ec0f0df"
 
 
 def test_hash_digest_is_stable_across_python_hash_seeds() -> None:
     root = Path(__file__).resolve().parents[1]
     code = (
-        "from stochastic_programming_library import Normal;"
-        "from stochastic_programming_library.expr.hashing import "
+        "from stoch_ir import Normal;"
+        "from stoch_ir.expr.hashing import "
         "resolve_stochastic_hashes;"
         "a=Normal(0,1);b=Normal(a+a,1);"
         "h=resolve_stochastic_hashes(b);"

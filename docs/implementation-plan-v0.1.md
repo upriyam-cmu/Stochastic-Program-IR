@@ -214,6 +214,6 @@ Do not begin the following during v0.1 unless the core acceptance work proves im
 - distribution constructors retain their natural parameters (for example,
   `Normal(mu, sigma)`) rather than lowering to standardized distributions;
 - public generic reductions use the immutable singleton objects in
-  `stochastic_programming_library.reductions`;
+  `stoch_ir.reductions`;
 - concrete NumPy storage always matches authoritative `ValueMeta.dtype`;
 - custom-node execution support and public graph rewrite APIs are deferred.

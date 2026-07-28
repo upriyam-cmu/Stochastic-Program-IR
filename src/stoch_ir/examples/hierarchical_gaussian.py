@@ -1,6 +1,6 @@
 """A row/column Gaussian model with staged sampling and named reduction."""
 
-from stochastic_programming_library import Normal, sampling_phase, softplus
+from stoch_ir import Normal, sampling_phase, softplus
 
 
 def build_model():

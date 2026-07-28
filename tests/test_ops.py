@@ -3,7 +3,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Constant,
     DataType,
     PlateLayout,
@@ -14,7 +14,7 @@ from stochastic_programming_library import (
     reductions,
     softplus,
 )
-from stochastic_programming_library.errors import (
+from stoch_ir.errors import (
     DependencyRewriteError,
     DuplicatePlateError,
     InvalidSupportError,
@@ -23,17 +23,17 @@ from stochastic_programming_library.errors import (
     PlateSizeMismatchError,
     UnknownPlateError,
 )
-from stochastic_programming_library.expr.nodes.ops import (
+from stoch_ir.expr.nodes.ops import (
     BinOpNode,
     ReductionOpNode,
     UnaryOpNode,
 )
-from stochastic_programming_library.expr.nodes.base import (
+from stoch_ir.expr.nodes.base import (
     Dependency,
     as_random_variable,
 )
-from stochastic_programming_library.expr.nodes.shape import add_plates
-from stochastic_programming_library.expr.ops.binary_op import FloorDivideOp
+from stoch_ir.expr.nodes.shape import add_plates
+from stoch_ir.expr.ops.binary_op import FloorDivideOp
 
 
 class PlateAwareOperatorTests(unittest.TestCase):

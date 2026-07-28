@@ -426,8 +426,8 @@ wheels = [
 ]
 
 [[package]]
-name = "stochastic-programming-library"
-version = "0.1.0"
+name = "stoch-ir"
+version = "0.1.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },

@@ -1,6 +1,6 @@
 """Import the supported API from an installed package."""
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     Normal,
     Uniform,

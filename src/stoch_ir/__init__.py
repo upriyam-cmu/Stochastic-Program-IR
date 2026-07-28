@@ -1,4 +1,6 @@
-"""Graph-first authoring and staged realization for stochastic programs."""
+"""Stochastic Program IR: graph-first stochastic authoring and realization."""
+
+from importlib.metadata import version as _distribution_version
 
 from . import reductions
 from .distributions import (
@@ -26,7 +28,7 @@ from .expr import (
 from .phases import current_sampling_phase, sampling_phase
 from .transforms import exp, log, softplus
 
-__version__ = "0.1.0"
+__version__ = _distribution_version("stoch-ir")
 
 __all__ = [
     "Bernoulli",

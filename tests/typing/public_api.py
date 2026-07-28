@@ -1,6 +1,6 @@
 """Static consumer of inline annotations exposed by the public package."""
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     ConcreteValue,
     Normal,

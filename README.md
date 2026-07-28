@@ -1,8 +1,10 @@
-# Stochastic Programming Library
+# Stochastic Program IR
 
-> Status: early v0.1 implementation. The API is still under active development.
+> Status: v0.1 alpha. The API is still under active development.
 
-Stochastic Programming Library is a graph-first Python API for authoring stochastic programs that are easy to read, compare, validate, and realize in stages.
+Stochastic Program IR is a structural intermediate representation for authoring
+stochastic programs that are easy to read, compare, validate, and realize in
+stages.
 
 The central idea is to preserve stochastic intent in the program itself. Distribution dependencies remain symbolic, independent replication is expressed with named plates, and sampling is grouped into phases that can be materialized independently. This makes important relationships visible to both human readers and code-generating agents instead of hiding them behind mutable RNG state and positional tensor axes.
 
@@ -21,7 +23,7 @@ The project is deliberately not a probabilistic inference framework. v0.1 is aim
 ## v0.1 API
 
 ```python
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     Normal,
     Uniform,
@@ -177,7 +179,7 @@ uses branch coverage with a 95% release floor.
 - [v0.1 implementation plan](docs/implementation-plan-v0.1.md)
 - [public API contract](docs/api-v0.1.md)
 - [graph hashing and materialization architecture](docs/graph-hashing-and-materialization.md)
-- The typed implementation lives in [`src/stochastic_programming_library`](src/stochastic_programming_library).
+- The typed implementation lives in [`src/stoch_ir`](src/stoch_ir).
 
 ## v0.1 boundaries
 

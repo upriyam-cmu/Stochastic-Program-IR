@@ -2,23 +2,23 @@ import numpy as np
 import runpy
 import sys
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     Normal,
     Uniform,
     constant,
     sampling_phase,
 )
-from stochastic_programming_library.examples.bernoulli_trials import (
+from stoch_ir.examples.bernoulli_trials import (
     build_model as build_bernoulli_model,
 )
-from stochastic_programming_library.examples.bernoulli_trials import (
+from stoch_ir.examples.bernoulli_trials import (
     run as run_bernoulli,
 )
-from stochastic_programming_library.examples.hierarchical_gaussian import (
+from stoch_ir.examples.hierarchical_gaussian import (
     build_model as build_gaussian_model,
 )
-from stochastic_programming_library.examples.hierarchical_gaussian import (
+from stoch_ir.examples.hierarchical_gaussian import (
     run as run_gaussian,
 )
 
@@ -101,19 +101,19 @@ def test_named_numpy_constants_feed_stochastic_graph() -> None:
 
 def test_example_modules_are_directly_executable(capsys) -> None:
     sys.modules.pop(
-        "stochastic_programming_library.examples.hierarchical_gaussian",
+        "stoch_ir.examples.hierarchical_gaussian",
         None,
     )
     sys.modules.pop(
-        "stochastic_programming_library.examples.bernoulli_trials",
+        "stoch_ir.examples.bernoulli_trials",
         None,
     )
     runpy.run_module(
-        "stochastic_programming_library.examples.hierarchical_gaussian",
+        "stoch_ir.examples.hierarchical_gaussian",
         run_name="__main__",
     )
     runpy.run_module(
-        "stochastic_programming_library.examples.bernoulli_trials",
+        "stoch_ir.examples.bernoulli_trials",
         run_name="__main__",
     )
 

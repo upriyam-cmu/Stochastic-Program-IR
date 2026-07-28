@@ -1,12 +1,12 @@
 import pytest
 from typing import Any, cast
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Normal,
     current_sampling_phase,
     sampling_phase,
 )
-from stochastic_programming_library.errors import PhaseError
+from stoch_ir.errors import PhaseError
 
 
 def test_sampling_phase_nests_and_restores() -> None:

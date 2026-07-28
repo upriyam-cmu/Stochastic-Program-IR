@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from typing import Any, cast
 
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     DataType,
     Normal,
@@ -10,7 +10,7 @@ from stochastic_programming_library import (
     ValueSupport,
     constant,
 )
-from stochastic_programming_library.errors import (
+from stoch_ir.errors import (
     InvalidSupportError,
     RngLabelError,
 )

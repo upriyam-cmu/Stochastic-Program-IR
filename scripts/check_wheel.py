@@ -12,7 +12,7 @@ def main(wheel: Path) -> None:
     stubs = sorted(name for name in names if name.endswith(".pyi"))
     if stubs:
         raise AssertionError(f"wheel unexpectedly contains stubs: {stubs}")
-    if "stochastic_programming_library/py.typed" not in names:
+    if "stoch_ir/py.typed" not in names:
         raise AssertionError("wheel does not contain py.typed")
 
 

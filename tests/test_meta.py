@@ -3,13 +3,13 @@ from typing import Any, cast
 
 import numpy as np
 
-from stochastic_programming_library import constant
-from stochastic_programming_library.errors import (
+from stoch_ir import constant
+from stoch_ir.errors import (
     BackendError,
     DuplicatePlateError,
     UnknownPlateError,
 )
-from stochastic_programming_library.expr.meta import (
+from stoch_ir.expr.meta import (
     EMPTY_PLATE_LAYOUT,
     ConcreteValue,
     DataType,

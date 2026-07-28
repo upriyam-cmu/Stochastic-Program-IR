@@ -1,7 +1,7 @@
 [project]
-name = "stochastic-programming-library"
-version = "0.1.0"
-description = "A graph-first authoring and staged-realization model for stochastic programs"
+name = "stoch-ir"
+version = "0.1.0a1"
+description = "A structural intermediate representation for stochastic programs"
 readme = "README.md"
 authors = [
     { name = "Utkarsh Priyam" }
@@ -26,7 +26,7 @@ build-backend = "uv_build"
 
 [tool.coverage.run]
 branch = true
-source = ["stochastic_programming_library"]
+source = ["stoch_ir"]
 
 [tool.coverage.report]
 fail_under = 95

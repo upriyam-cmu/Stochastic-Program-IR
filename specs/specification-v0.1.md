@@ -1,4 +1,4 @@
-# Stochastic Programming Library v0.1 Specification
+# Stochastic Program IR v0.1 Specification
 
 This document is the normative design contract for v0.1. The words **must**, **should**, and **may** describe required, recommended, and optional behavior respectively.
 

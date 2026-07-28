@@ -1,6 +1,6 @@
 """Grouped Uniform probabilities feeding replicated Bernoulli trials."""
 
-from stochastic_programming_library import Bernoulli, Uniform, sampling_phase
+from stoch_ir import Bernoulli, Uniform, sampling_phase
 
 
 def build_model():

@@ -1,13 +1,13 @@
 # v0.1 Public API Contract
 
-The typed runtime under `src/stochastic_programming_library` is the
+The typed runtime under `src/stoch_ir` is the
 machine-readable API contract. This page summarizes the currently implemented
 surface.
 
 ## Top-level imports
 
 ```python
-from stochastic_programming_library import (
+from stoch_ir import (
     Bernoulli,
     BernoulliDistribution,
     ConcreteValue,
