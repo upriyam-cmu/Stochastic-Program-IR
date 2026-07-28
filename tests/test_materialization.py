@@ -1,4 +1,8 @@
 import unittest
+import os
+from pathlib import Path
+import subprocess
+import sys
 from typing import Any, cast
 
 import numpy as np
@@ -12,7 +16,14 @@ from stochastic_programming_library import (
 from stochastic_programming_library.expr.hashing import (
     resolve_stochastic_hashes,
 )
-from stochastic_programming_library.errors import UnrealizedGraphError
+from stochastic_programming_library.errors import (
+    MissingPlateSizeError,
+    PhaseError,
+    PlateSizeMismatchError,
+    UnrealizedGraphError,
+    UnresolvedRandomnessError,
+)
+from stochastic_programming_library.rng import NodeEntropy
 
 
 class MaterializationTests(unittest.TestCase):
@@ -241,6 +252,165 @@ class MaterializationTests(unittest.TestCase):
 
         self.assertEqual(value.layout.plates, ("row",))
         self.assertEqual(value.shape, (2,))
+
+    def test_materialization_requires_valid_sizes_for_every_plate(self) -> None:
+        expr = Normal(0, 1).add_plates("row")
+
+        with self.assertRaises(MissingPlateSizeError):
+            expr.realize(seed=1)
+        for invalid in (0, -1, True, 1.5):
+            with self.subTest(size=invalid):
+                with self.assertRaises(PlateSizeMismatchError):
+                    expr.realize(
+                        seed=1,
+                        plate_sizes=cast(Any, {"row": invalid}),
+                    )
+
+    def test_checkpoint_sizes_are_fixed(self) -> None:
+        checkpoint = (
+            Normal(0, 1)
+            .add_plates("row")
+            .materialize(
+                seed=1,
+                plate_sizes={"row": 2},
+                phases=(),
+            )
+        )
+
+        with self.assertRaises(PlateSizeMismatchError):
+            checkpoint.materialize(plate_sizes={})
+        with self.assertRaises(PlateSizeMismatchError):
+            checkpoint.materialize(plate_sizes={"row": 3})
+        with self.assertRaises(PlateSizeMismatchError):
+            checkpoint.materialize(plate_sizes={"row": True})
+
+    def test_deterministic_graph_is_evaluated_without_checkpoint(self) -> None:
+        source = Normal(0, 1)
+        deterministic = source.mu + source.mu
+
+        value = deterministic.realize()
+
+        self.assertEqual(value.data, 0)
+
+    def test_unresolved_distribution_cannot_be_wrapped_as_checkpoint(self) -> None:
+        with self.assertRaises(UnresolvedRandomnessError):
+            SamplingCheckpoint._wrap(Normal(0, 1), {})
+
+    def test_entropy_cannot_be_replaced_or_seeded_too_early(self) -> None:
+        node = Normal(0, 1)
+        with self.assertRaises(UnresolvedRandomnessError):
+            node.bind_sampling_seed(1)
+        stamped = node.with_node_entropy(NodeEntropy(b"first"))
+        with self.assertRaises(UnresolvedRandomnessError):
+            stamped.with_node_entropy(NodeEntropy(b"second"))
+        bound = stamped.bind_sampling_seed(1)
+        self.assertEqual(
+            bound.bind_sampling_seed(2)._sampling_seed,
+            bound._sampling_seed,
+        )
+
+    def test_stochastic_equality_checks_seeds_sizes_and_structure(self) -> None:
+        left = (
+            Normal(0, 1)
+            .add_plates("row")
+            .materialize(
+                seed=1,
+                plate_sizes={"row": 2},
+                phases=(),
+            )
+        )
+        same = (
+            Normal(0, 1)
+            .add_plates("row")
+            .materialize(
+                seed=1,
+                plate_sizes={"row": 2},
+                phases=(),
+            )
+        )
+        different_seed = (
+            Normal(0, 1)
+            .add_plates("row")
+            .materialize(
+                seed=2,
+                plate_sizes={"row": 2},
+                phases=(),
+            )
+        )
+        different_size = (
+            Normal(0, 1)
+            .add_plates("row")
+            .materialize(
+                seed=1,
+                plate_sizes={"row": 3},
+                phases=(),
+            )
+        )
+        different_graph = (
+            Normal(1, 1)
+            .add_plates("row")
+            .materialize(
+                seed=1,
+                plate_sizes={"row": 2},
+                phases=(),
+            )
+        )
+
+        self.assertTrue(left.stochastically_equal(same))
+        self.assertFalse(left.stochastically_equal(different_seed))
+        self.assertFalse(left.stochastically_equal(different_size))
+        self.assertFalse(left.stochastically_equal(different_graph))
+        self.assertFalse(left.stochastically_equal(cast(Any, object())))
+        self.assertFalse(left.structurally_equal(cast(Any, object())))
+
+    def test_same_plate_cannot_be_lifted_across_reduction(self) -> None:
+        expr = Normal(0, 1).add_plates("row").mean("row").add_plates("row")
+
+        with self.assertRaisesRegex(ValueError, "cannot lift a plate"):
+            expr.materialize(seed=1, plate_sizes={"row": 2})
+
+    def test_invalid_materialization_phase_does_not_mutate_source(self) -> None:
+        with sampling_phase("draw"):
+            expr = Normal(0, 1)
+
+        with self.assertRaises(PhaseError):
+            expr.materialize(seed=1, phases=("",))
+        self.assertEqual(expr.pending_phases, frozenset({"draw"}))
+
+
+def test_v01_hash_digest_fixture() -> None:
+    first = Normal(0, 1)
+    second = Normal(first + first, 1)
+    hashes = resolve_stochastic_hashes(second)
+
+    assert hashes.for_node(first).final.hex() == "e4f5c65164cd8e0c3330788b71a5a4cd"
+    assert hashes.for_node(second).final.hex() == "040ce51b2ab4b9d9353cf89c82079939"
+
+
+def test_hash_digest_is_stable_across_python_hash_seeds() -> None:
+    root = Path(__file__).resolve().parents[1]
+    code = (
+        "from stochastic_programming_library import Normal;"
+        "from stochastic_programming_library.expr.hashing import "
+        "resolve_stochastic_hashes;"
+        "a=Normal(0,1);b=Normal(a+a,1);"
+        "h=resolve_stochastic_hashes(b);"
+        "print(h.for_node(a).final.hex(),h.for_node(b).final.hex())"
+    )
+    outputs = []
+    for hash_seed in ("1", "987654"):
+        environment = os.environ.copy()
+        environment["PYTHONHASHSEED"] = hash_seed
+        outputs.append(
+            subprocess.check_output(
+                [sys.executable, "-c", code],
+                cwd=root,
+                env=environment,
+                text=True,
+            ).strip()
+        )
+
+    assert outputs[0] == outputs[1]
 
 
 if __name__ == "__main__":

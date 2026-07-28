@@ -91,9 +91,26 @@ insensitive to the caller's argument order.
 
 ### 4.1 Inputs and constants
 
-Python scalar inputs are automatically represented as plate-free constants. A public `Constant(value, plates=...)` constructor must allow callers to inject an existing backend value and describe its named axes.
+Python scalar inputs are automatically represented as plate-free constants. The
+public value boundary is:
 
-For a non-scalar constant, its number and order of declared plates must agree with its runtime rank when the selected backend exposes rank. This validation may occur at construction or first materialization.
+```python
+constant(value, *, plates=(), dtype=None) -> Constant
+```
+
+When `dtype` is omitted, supported Boolean, integer, and floating Python/NumPy
+kinds are inferred. `ValueMeta.dtype` is authoritative, and every concrete
+value must use canonical NumPy storage:
+
+- `BOOL` → `np.bool_`;
+- `INT` → `np.int64`;
+- `FLOAT` → `np.float64`.
+
+Complex, object, and string values must be rejected. Support metadata is
+derived after boundary coercion, and values with explicitly narrower support
+must satisfy it. For a non-scalar constant, the number and order of declared
+plates must agree with its runtime rank at construction. `Constant.of` and
+`Constant.array` remain convenience constructors over the same boundary.
 
 ### 4.2 Core node families
 
@@ -114,13 +131,13 @@ v0.1 must specify these distributions:
 
 ```python
 Normal(mu, sigma, *, rng_label=None)
-Uniform(low, high, *, rng_label=None)
+Uniform(low=0.0, high=1.0, *, rng_label=None)
 Bernoulli(p, *, rng_label=None)
 ```
 
 Parameters accept expressions or scalar constants. A distribution's plates are the ordered union of its parameter plates plus any plates introduced around the expression through `add_plates`.
 
-`rng_label` is optional human-readable entropy mixed into a node's
+`rng_label` must be `None` or a non-empty string. It is optional human-readable entropy mixed into a node's
 graph-derived entropy. It never replaces the graph hash and cannot opt two
 distinct nodes into a shared random stream. Shared randomness is represented by
 reusing the same distribution node.
@@ -129,13 +146,26 @@ The graph contribution is derived from a stochastic-only projection containing
 stochastic dependencies, direct stochastic consumers, structural input
 ordinals, and a canonical enumeration for otherwise symmetric nodes.
 
+`Uniform` has symbolic bounds, `FLOAT` output, and requires `low < high`
+elementwise at sampling. Its conservative support is:
+
+- `UNIT_INTERVAL` when both bound supports are within `UNIT_INTERVAL`;
+- `POSITIVE_BRANCH` when the lower-bound support is nonnegative;
+- `NEGATIVE_BRANCH` when the upper-bound support is nonpositive;
+- `REAL` otherwise.
+
+`Bernoulli` has symbolic `p`, `BOOL` output, `UNIT_INTERVAL` support, and
+requires `0 <= p <= 1` elementwise at sampling.
+
 v0.1 must specify:
 
-- binary `+`, `-`, `*`, and `/`;
-- unary `exp(expr)`, `log(expr)`, and `softplus(expr)`.
+- binary `+`, `-`, `*`, `/`, and `//`;
+- unary `exp(expr)`, `log(expr)`, `softplus(expr)`, and expression `abs()`.
 
 Deterministic operators use the canonical union of operand plates and must align
 concrete operands by plate name before applying the NumPy operation.
+Floor division produces `FLOAT` metadata when either operand is floating and
+`INT` otherwise.
 
 ## 6. Plate operations
 
@@ -183,12 +213,13 @@ The method requires exact set equality and returns the same expression object. I
 ### 6.3 `reduce_plates`
 
 ```python
-expr.reduce_plates(*plates, reduction=Reduction.MEAN) -> Expr
+expr.reduce_plates(*plates, reduction=reductions.MEAN) -> Expr
 ```
 
 Every requested plate must exist and may appear only once. The result removes those plates and preserves the relative order of all remaining plates.
 
-The v0.1 `Reduction` enum contains:
+The public `reductions` module exposes canonical immutable singleton
+implementation objects:
 
 - `MEAN`;
 - `SUM`;
@@ -197,7 +228,8 @@ The v0.1 `Reduction` enum contains:
 - `PROD`;
 - `LOGSUMEXP`.
 
-Arbitrary reduction callables are not supported in v0.1.
+The concrete implementation classes remain internal. Arbitrary reduction
+callables and caller-instantiated implementations are not supported in v0.1.
 
 Convenience methods (`mean`, `sum`, `max`, `min`, `prod`, and `logsumexp`) must delegate to `reduce_plates` and must not introduce distinct IR node types.
 
@@ -237,6 +269,8 @@ with sampling_phase("latent"):
 The context records a default phase only on distribution nodes constructed inside it. Deterministic operators and plate nodes do not store the active phase.
 
 Nested phase contexts use the innermost active phase. Exiting restores the previous phase. Phase names have no ordering or implicit precedence.
+Every phase name supplied to a context or materialization call must be a
+non-empty string and invalid names raise `PhaseError`.
 
 An unphased distribution has no phase barrier and is eligible whenever its
 dependencies are concrete. Omitting `phases` enables every remaining named
@@ -380,6 +414,11 @@ with `numpy.random.Generator`. A public backend protocol is deliberately omitted
 JAX and PyTorch integration may be reconsidered after the graph and
 materialization model has been validated.
 
+Runtime modules contain the public type annotations and the wheel ships
+`py.typed`; no `.pyi` files are part of the v0.1 package. Public imports,
+documentation, runtime behavior, and static-consumer checks must describe the
+same surface.
+
 ## 12. Structural equality
 
 `RandomVariable.__eq__` and `RandomVariable.structurally_equal` perform
@@ -412,7 +451,8 @@ The public error hierarchy is:
 StochasticProgrammingError
 ├── GraphValidationError
 │   ├── GraphCycleError
-│   └── DependencyRewriteError
+│   ├── DependencyRewriteError
+│   └── RngLabelError
 ├── PlateError
 │   ├── DuplicatePlateError
 │   ├── PlateExpectationError

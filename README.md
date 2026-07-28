@@ -18,11 +18,15 @@ The project is deliberately not a probabilistic inference framework. v0.1 is aim
   resolution, the same stochastic sharing relationships;
 - how to freeze an early phase and resample later phases from it.
 
-## Proposed v0.1 API
+## v0.1 API
 
 ```python
 from stochastic_programming_library import (
+    Bernoulli,
     Normal,
+    Uniform,
+    constant,
+    reductions,
     sampling_phase,
     softplus,
 )
@@ -45,6 +49,38 @@ layer_score = (
 ```
 
 `add_plates(..., expect=...)` combines an exact precondition with an explicit stochastic transformation. The example states that `activations` already varies over `"layer"`, verifies that claim, and then introduces independent samples over `"batch"`.
+
+v0.1 also includes arbitrary-bound continuous uniforms and Boolean Bernoulli
+draws:
+
+```python
+with sampling_phase("probability"):
+    probability = Uniform().add_plates("group")
+
+with sampling_phase("trial"):
+    trial = Bernoulli(probability).add_plates(
+        "trial",
+        expect=("group",),
+    )
+
+rate = trial.reduce_plates("trial", reduction=reductions.MEAN)
+```
+
+Existing NumPy values enter through one explicit boundary:
+
+```python
+import numpy as np
+
+offset = constant(
+    np.array([0.1, 0.2], dtype=np.float32),
+    plates=("group",),
+)
+```
+
+`constant` infers Boolean, integer, or floating metadata unless `dtype=` is
+given. Storage is immediately coerced to `np.bool_`, `np.int64`, or
+`np.float64`, respectively. Complex, object, string, and unnamed
+multidimensional values are rejected.
 
 The same graph can be materialized in phases:
 
@@ -82,7 +118,7 @@ The public plate operations are intentionally small:
 
 - `add_plates(*new, expect=None)` introduces independent replication. If `expect` is supplied, the current plates must match it exactly before the new plates are added.
 - `check_plates(*expected)` validates the exact current plate set and returns the unchanged expression.
-- `reduce_plates(*plates, reduction=...)` removes plates through a named aggregation.
+- `reduce_plates(*plates, reduction=reductions.MEAN)` removes plates through a canonical immutable implementation object.
 - `mean`, `sum`, `max`, `min`, `prod`, and `logsumexp` are convenience methods over `reduce_plates`.
 
 Plate identifiers are strings. Their sizes are deliberately not stored in the symbolic graph; a `plate_sizes` mapping supplies concrete extents when a graph is materialized.
@@ -126,6 +162,14 @@ deterministic RNG entropy derivation, and immutable materialization. v0.1 perfor
 numeric propagation and distribution sampling with NumPy internally. Conversion
 to other array libraries belongs at API boundaries; a pluggable backend protocol
 is not part of the current implementation.
+
+## Typing and validation
+
+The package is marked with `py.typed` and keeps its annotations inline in the
+runtime modules; no parallel `.pyi` API is shipped. CI type-checks a consumer
+that imports only public names, builds the wheel, verifies that the marker (and
+no stub files) ships, and smoke-tests the installed public API. The test suite
+uses branch coverage with a 95% release floor.
 
 ## Project documents
 

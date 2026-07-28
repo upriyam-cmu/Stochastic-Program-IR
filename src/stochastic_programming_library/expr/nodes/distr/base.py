@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 from typing_extensions import Self, override
 
-from ....errors import UnrealizedGraphError, UnresolvedRandomnessError
+from ....errors import RngLabelError, UnrealizedGraphError, UnresolvedRandomnessError
 from ....rng import (
     NodeEntropy,
     RngLabel,
@@ -29,6 +29,13 @@ class RandomDistributionNode(RandomVariable, ABC):
     rng_label: RngLabel | None
     _node_entropy: NodeEntropy | None
     _sampling_seed: Seed | None
+
+    def __post_init__(self) -> None:
+        if self.rng_label is not None and (
+            not isinstance(self.rng_label, str) or not self.rng_label
+        ):
+            raise RngLabelError("rng_label must be None or a non-empty string")
+        super().__post_init__()
 
     @override
     def _compute_pending_phases(self) -> frozenset[Phase]:

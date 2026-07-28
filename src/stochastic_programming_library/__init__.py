@@ -1,6 +1,17 @@
 """Graph-first authoring and staged realization for stochastic programs."""
 
-from .distributions import Gaussian, Normal, normal
+from . import reductions
+from .distributions import (
+    Bernoulli,
+    BernoulliDistribution,
+    Gaussian,
+    Normal,
+    Uniform,
+    UniformDistribution,
+    bernoulli,
+    normal,
+    uniform,
+)
 from .expr import (
     ConcreteValue,
     Constant,
@@ -10,6 +21,7 @@ from .expr import (
     SamplingCheckpoint,
     ValueMeta,
     ValueSupport,
+    constant,
 )
 from .phases import current_sampling_phase, sampling_phase
 from .transforms import exp, log, softplus
@@ -17,6 +29,8 @@ from .transforms import exp, log, softplus
 __version__ = "0.1.0"
 
 __all__ = [
+    "Bernoulli",
+    "BernoulliDistribution",
     "ConcreteValue",
     "Constant",
     "DataType",
@@ -25,12 +39,18 @@ __all__ = [
     "PlateLayout",
     "RandomVariable",
     "SamplingCheckpoint",
+    "Uniform",
+    "UniformDistribution",
     "ValueMeta",
     "ValueSupport",
     "current_sampling_phase",
+    "bernoulli",
+    "constant",
     "exp",
     "log",
     "normal",
+    "reductions",
     "sampling_phase",
     "softplus",
+    "uniform",
 ]

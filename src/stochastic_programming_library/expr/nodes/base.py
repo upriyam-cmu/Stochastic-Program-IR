@@ -25,7 +25,6 @@ from ...errors import (
 )
 from ...rng import Seed
 from ..meta import (
-    EMPTY_PLATE_LAYOUT,
     ConcreteValue,
     Data,
     DataType,
@@ -39,12 +38,12 @@ from ..meta import (
 from ..ops import BinOpImpl, ReductionImpl, UnaryOpImpl
 from ..ops.binary_op import AddOp, FloorDivideOp, MultiplyOp, SubtractOp, TrueDivideOp
 from ..ops.reduction import (
-    LogSumExpReduction,
-    MaxReduction,
-    MeanReduction,
-    MinReduction,
-    ProductReduction,
-    SumReduction,
+    LOGSUMEXP,
+    MAX,
+    MEAN,
+    MIN,
+    PROD,
+    SUM,
 )
 from ..ops.unary_op import AbsOp, ExpOp, LogOp, SoftplusOp
 
@@ -249,22 +248,22 @@ class RandomVariable(ABC):
         )
 
     def mean(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=MeanReduction())
+        return self.reduce_plates(*plates, reduction=MEAN)
 
     def sum(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=SumReduction())
+        return self.reduce_plates(*plates, reduction=SUM)
 
     def max(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=MaxReduction())
+        return self.reduce_plates(*plates, reduction=MAX)
 
     def min(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=MinReduction())
+        return self.reduce_plates(*plates, reduction=MIN)
 
     def prod(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=ProductReduction())
+        return self.reduce_plates(*plates, reduction=PROD)
 
     def logsumexp(self, *plates: Plate) -> "RandomVariable":
-        return self.reduce_plates(*plates, reduction=LogSumExpReduction())
+        return self.reduce_plates(*plates, reduction=LOGSUMEXP)
 
     def apply_unary_op(self, op: UnaryOpImpl) -> "RandomVariable":
         from .ops import UnaryOpNode
@@ -360,23 +359,11 @@ class Constant(RandomVariable):
 
     @staticmethod
     def of(value: Data, dtype: DataType) -> "Constant":
-        return Constant(
-            ConcreteValue.wrap(
-                data=value,
-                layout=EMPTY_PLATE_LAYOUT,
-                meta=ValueMeta.from_value(value, dtype),
-            )
-        )
+        return constant(value, dtype=dtype)
 
     @staticmethod
     def array(arr: np.ndarray, dtype: DataType, layout: PlateLayout) -> "Constant":
-        return Constant(
-            ConcreteValue.wrap(
-                data=arr,
-                layout=layout,
-                meta=ValueMeta.from_value(arr, dtype),
-            )
-        )
+        return constant(arr, plates=layout, dtype=dtype)
 
     @override
     def _compute_dependencies(self) -> tuple[Dependency, ...]:
@@ -427,6 +414,25 @@ class Constant(RandomVariable):
 
 
 ExprInput: TypeAlias = RandomVariable | Scalar
+
+
+def constant(
+    value: Data,
+    *,
+    plates: Iterable[Plate] = (),
+    dtype: DataType | None = None,
+) -> Constant:
+    """Create a constant through the canonical concrete-value boundary."""
+
+    resolved_dtype = DataType.infer(value) if dtype is None else dtype
+    layout = PlateLayout.wrap(plates)
+    return Constant(
+        ConcreteValue.wrap(
+            data=value,
+            layout=layout,
+            meta=ValueMeta.from_value(value, resolved_dtype),
+        )
+    )
 
 
 def as_random_variable(expr: ExprInput) -> RandomVariable:

@@ -3,6 +3,7 @@ from dataclasses import replace
 import numpy as np
 from typing_extensions import Self, override
 
+from ....errors import InvalidSupportError
 from ....rng import RngLabel
 from ...meta import (
     ConcreteValue,
@@ -109,7 +110,7 @@ class Gaussian(RandomDistributionNode):
             plate_sizes=plate_sizes,
         )
         if np.any(sigma_data <= 0):
-            raise ValueError("Gaussian sigma must be strictly positive")
+            raise InvalidSupportError("Gaussian sigma must be strictly positive")
         return np.asarray(rng.normal(loc=mu_data, scale=sigma_data))
 
 

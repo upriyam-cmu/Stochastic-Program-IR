@@ -4,15 +4,28 @@ from .base import (
     ExprInput,
     RandomVariable,
     as_random_variable,
+    constant,
 )
-from .distr.base import RandomDistributionNode
-from .distr.normal import Gaussian, Normal, normal
+from .distr import (
+    Bernoulli,
+    BernoulliDistribution,
+    Gaussian,
+    Normal,
+    RandomDistributionNode,
+    Uniform,
+    UniformDistribution,
+    bernoulli,
+    normal,
+    uniform,
+)
 from .ops import BinOpNode, ReductionOpNode, UnaryOpNode
 from .shape import AddPlatesNode
 
 __all__ = [
     "AddPlatesNode",
     "BinOpNode",
+    "Bernoulli",
+    "BernoulliDistribution",
     "Constant",
     "Dependency",
     "ExprInput",
@@ -22,6 +35,11 @@ __all__ = [
     "RandomVariable",
     "ReductionOpNode",
     "UnaryOpNode",
+    "Uniform",
+    "UniformDistribution",
     "as_random_variable",
+    "bernoulli",
+    "constant",
     "normal",
+    "uniform",
 ]

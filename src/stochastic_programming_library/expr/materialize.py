@@ -25,6 +25,7 @@ import numpy as np
 
 from ..errors import (
     MissingPlateSizeError,
+    PhaseError,
     PlateSizeMismatchError,
     UnrealizedGraphError,
     UnresolvedRandomnessError,
@@ -326,8 +327,13 @@ def _materialize_resolved(
 ) -> RandomVariable:
     # Exactly one run seed is selected for an invocation. It is immediately
     # bound to every newly enabled distribution encountered in this pass.
+    if phases is None:
+        enabled_phases = None
+    else:
+        enabled_phases = frozenset(phases)
+        if any(not isinstance(phase, str) or not phase for phase in enabled_phases):
+            raise PhaseError("materialization phase names must be non-empty strings")
     run_seed = resolve_run_seed(seed)
-    enabled_phases = None if phases is None else frozenset(phases)
     return _materialize_node(
         root,
         run_seed=run_seed,

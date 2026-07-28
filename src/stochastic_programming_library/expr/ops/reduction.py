@@ -104,3 +104,11 @@ class LogSumExpReduction(ReductionImpl):
         return np.squeeze(a_max, axis=axes) + np.log(
             np.sum(np.exp(child - a_max), axis=axes)
         )
+
+
+MEAN = MeanReduction()
+SUM = SumReduction()
+MAX = MaxReduction()
+MIN = MinReduction()
+PROD = ProductReduction()
+LOGSUMEXP = LogSumExpReduction()

@@ -1,3 +1,23 @@
-from .expr.nodes.distr.normal import Gaussian, Normal, normal
+from .expr.nodes.distr import (
+    Bernoulli,
+    BernoulliDistribution,
+    Gaussian,
+    Normal,
+    Uniform,
+    UniformDistribution,
+    bernoulli,
+    normal,
+    uniform,
+)
 
-__all__ = ["Gaussian", "Normal", "normal"]
+__all__ = [
+    "Bernoulli",
+    "BernoulliDistribution",
+    "Gaussian",
+    "Normal",
+    "Uniform",
+    "UniformDistribution",
+    "bernoulli",
+    "normal",
+    "uniform",
+]

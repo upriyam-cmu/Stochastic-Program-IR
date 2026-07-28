@@ -12,16 +12,25 @@ from .meta import (
     ValueSupport,
 )
 from .nodes import (
+    Bernoulli,
+    BernoulliDistribution,
     Constant,
     ExprInput,
     Gaussian,
     Normal,
     RandomVariable,
+    Uniform,
+    UniformDistribution,
     as_random_variable,
+    bernoulli,
+    constant,
     normal,
+    uniform,
 )
 
 __all__ = [
+    "Bernoulli",
+    "BernoulliDistribution",
     "ConcreteValue",
     "Constant",
     "Data",
@@ -36,8 +45,13 @@ __all__ = [
     "RandomVariable",
     "SamplingCheckpoint",
     "Scalar",
+    "Uniform",
+    "UniformDistribution",
     "ValueMeta",
     "ValueSupport",
     "as_random_variable",
+    "bernoulli",
+    "constant",
     "normal",
+    "uniform",
 ]

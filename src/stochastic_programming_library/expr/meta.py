@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum
 from functools import cached_property, reduce
 from types import MappingProxyType
-from typing import Final, TypeAlias
+from typing import Any, Final, TypeAlias
 
 import numpy as np
 
@@ -13,7 +13,7 @@ from ..errors import BackendError, DuplicatePlateError, UnknownPlateError
 Plate: TypeAlias = str
 Phase: TypeAlias = str | None
 Scalar: TypeAlias = bool | int | float
-Data: TypeAlias = Scalar | np.ndarray
+Data: TypeAlias = Scalar | np.generic | np.ndarray
 PlateSizes: TypeAlias = Mapping[Plate, int]
 
 
@@ -22,6 +22,19 @@ class ValueSupport(Enum):
     NEGATIVE_BRANCH = "(-inf, 0]"
     UNIT_INTERVAL = "[0, 1]"
     REAL = "(-inf, +inf)"
+
+    def contains(self, value: np.ndarray) -> bool:
+        match self:
+            case ValueSupport.POSITIVE_BRANCH:
+                return bool(np.all(0 <= value))
+            case ValueSupport.NEGATIVE_BRANCH:
+                return bool(np.all(value <= 0))
+            case ValueSupport.UNIT_INTERVAL:
+                return bool(np.all(0 <= value) and np.all(value <= 1))
+            case ValueSupport.REAL:
+                return True
+
+        raise AssertionError(f"unreachable support {self!r}")
 
 
 class DataType(IntEnum):
@@ -32,6 +45,42 @@ class DataType(IntEnum):
     INT = 1
     FLOAT = 2
 
+    @property
+    def numpy_dtype(self) -> np.dtype[Any]:
+        match self:
+            case DataType.BOOL:
+                return np.dtype(np.bool_)
+            case DataType.INT:
+                return np.dtype(np.int64)
+            case DataType.FLOAT:
+                return np.dtype(np.float64)
+
+        raise AssertionError(f"unreachable dtype {self!r}")
+
+    @classmethod
+    def infer(cls, value: Data) -> "DataType":
+        kind = np.asarray(value).dtype.kind
+        if kind == "b":
+            return cls.BOOL
+        if kind in ("i", "u"):
+            return cls.INT
+        if kind == "f":
+            return cls.FLOAT
+        raise BackendError(
+            f"unsupported concrete dtype {np.asarray(value).dtype}; "
+            "expected boolean, integer, or floating data"
+        )
+
+    def coerce(self, value: Data) -> np.ndarray:
+        source = np.asarray(value)
+        if source.dtype.kind not in ("b", "i", "u", "f"):
+            raise BackendError(
+                f"cannot coerce unsupported dtype {source.dtype} to {self.name}"
+            )
+        if self is DataType.BOOL and not bool(np.all((source == 0) | (source == 1))):
+            raise BackendError("BOOL values must contain only 0 or 1")
+        return np.asarray(source, dtype=self.numpy_dtype)
+
 
 @dataclass(frozen=True, slots=True)
 class ValueMeta:
@@ -40,19 +89,17 @@ class ValueMeta:
 
     @classmethod
     def from_value(cls, value: Data, dtype: DataType) -> "ValueMeta":
+        coerced = dtype.coerce(value)
         if dtype is DataType.BOOL:
-            all_bools = np.all(0 <= value) and np.all(value <= 1)
-            if not all_bools:
-                raise BackendError("Got BOOL dtype object with non-bool values?")
-            return ValueMeta(dtype=DataType.BOOL, support=ValueSupport.UNIT_INTERVAL)
+            return ValueMeta(dtype=dtype, support=ValueSupport.UNIT_INTERVAL)
 
-        if np.all(0 <= value):
-            if np.all(value <= 1):
+        if np.all(0 <= coerced):
+            if np.all(coerced <= 1):
                 support = ValueSupport.UNIT_INTERVAL
             else:
                 support = ValueSupport.POSITIVE_BRANCH
         else:
-            if np.all(value <= 0):
+            if np.all(coerced <= 0):
                 support = ValueSupport.NEGATIVE_BRANCH
             else:
                 support = ValueSupport.REAL
@@ -176,12 +223,20 @@ class ConcreteValue:
         return ConcreteValue(np.asarray(data), layout, meta)
 
     def __post_init__(self) -> None:
-        owned = np.array(self.data, copy=True)
+        owned = np.array(self.meta.dtype.coerce(self.data), copy=True)
         owned.flags.writeable = False
         object.__setattr__(self, "data", owned)
         if self.data.ndim != len(self.layout.plates):
             raise BackendError(
                 f"data.ndim = {self.data.ndim} != len(plates) = {len(self.layout.plates)}"
+            )
+        if (
+            self.meta.support is not ValueSupport.REAL
+            and not self.meta.support.contains(self.data)
+        ):
+            raise BackendError(
+                f"concrete value does not satisfy declared support "
+                f"{self.meta.support.value}"
             )
 
     def __eq__(self, other: object) -> bool:

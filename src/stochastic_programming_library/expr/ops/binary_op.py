@@ -120,7 +120,7 @@ class TrueDivideOp(BinOpImpl):
 class FloorDivideOp(BinOpImpl):
     @override
     def _remap_dtype(self, lhs: DataType, rhs: DataType) -> DataType:
-        return DataType.INT
+        return max(lhs, rhs, DataType.INT)
 
     @override
     def _remap_support(self, lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
@@ -128,8 +128,6 @@ class FloorDivideOp(BinOpImpl):
 
     @override
     def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-        # TODO this doesn't actually get the dtype correct
-        # when either array is a float type
         return lhs // rhs
 
 

@@ -8,6 +8,8 @@ surface.
 
 ```python
 from stochastic_programming_library import (
+    Bernoulli,
+    BernoulliDistribution,
     ConcreteValue,
     Constant,
     DataType,
@@ -16,26 +18,53 @@ from stochastic_programming_library import (
     PlateLayout,
     RandomVariable,
     SamplingCheckpoint,
+    Uniform,
+    UniformDistribution,
     ValueMeta,
     ValueSupport,
+    bernoulli,
+    constant,
     current_sampling_phase,
     exp,
     log,
     normal,
+    reductions,
     sampling_phase,
     softplus,
+    uniform,
 )
 ```
+
+The package is inline-typed and ships `py.typed`. No public symbol exists only
+in a `.pyi` file.
 
 ## Construction
 
 ```python
+constant(value, *, plates=(), dtype=None)
 Constant.of(value, dtype)
 Constant.array(array, dtype, plate_layout)
 Normal(mu, sigma, *, rng_label=None)
+Uniform(low=0.0, high=1.0, *, rng_label=None)
+Bernoulli(p, *, rng_label=None)
 ```
 
 Python scalar distribution parameters are coerced to constants. A distribution records the active `sampling_phase` at construction.
+`Constant.of` and `Constant.array` are retained convenience constructors and
+delegate to the same concrete boundary as `constant`.
+
+`ValueMeta.dtype` is authoritative at that boundary:
+
+| Metadata | NumPy storage |
+| --- | --- |
+| `DataType.BOOL` | `np.bool_` |
+| `DataType.INT` | `np.int64` |
+| `DataType.FLOAT` | `np.float64` |
+
+Supported scalar and NumPy Boolean, integer, and floating kinds are inferred
+when `dtype` is omitted. Complex, object, and string values are rejected.
+Non-scalar rank must match the number of named plates. Narrow support metadata
+is checked against the coerced value.
 
 ## Expression properties
 
@@ -54,10 +83,12 @@ expr + other
 expr - other
 expr * other
 expr / other
+expr // other
 
 exp(expr)
 log(expr)
 softplus(expr)
+expr.abs()
 ```
 
 ## Plate methods
@@ -65,7 +96,7 @@ softplus(expr)
 ```python
 expr.add_plates(*new, expect=None)
 expr.check_plates(*expected)
-expr.reduce_plates(*plates, reduction=Reduction.MEAN)
+expr.reduce_plates(*plates, reduction=reductions.MEAN)
 
 expr.mean(*plates)
 expr.sum(*plates)
@@ -74,6 +105,10 @@ expr.min(*plates)
 expr.prod(*plates)
 expr.logsumexp(*plates)
 ```
+
+The canonical objects are `reductions.MEAN`, `SUM`, `MAX`, `MIN`, `PROD`, and
+`LOGSUMEXP`. They are immutable singleton implementations; implementation
+classes and caller-defined reductions are not public v0.1 extension points.
 
 ## Structural comparison
 

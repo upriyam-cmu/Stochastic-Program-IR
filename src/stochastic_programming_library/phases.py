@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
+from .errors import PhaseError
 from .expr.meta import Phase
 
 _CURRENT_SAMPLING_PHASE: ContextVar[Phase] = ContextVar(
@@ -12,8 +13,8 @@ _CURRENT_SAMPLING_PHASE: ContextVar[Phase] = ContextVar(
 
 @contextmanager
 def sampling_phase(phase: str) -> Iterator[None]:
-    if not phase:
-        raise ValueError("sampling phase names must be non-empty strings")
+    if not isinstance(phase, str) or not phase:
+        raise PhaseError("sampling phase names must be non-empty strings")
     token = _CURRENT_SAMPLING_PHASE.set(phase)
     try:
         yield

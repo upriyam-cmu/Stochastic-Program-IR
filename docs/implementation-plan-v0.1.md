@@ -12,8 +12,8 @@ Required work:
 
 - immutable expression/node representation;
 - child traversal and DAG sharing;
-- operator overloads for `+`, `-`, `*`, and `/`;
-- unary nodes for `exp`, `log`, and `softplus`;
+- operator overloads for `+`, `-`, `*`, `/`, and `//`;
+- unary nodes for `exp`, `log`, `softplus`, and absolute value;
 - distribution nodes for `Normal`, `Uniform`, and `Bernoulli`;
 - alias-agnostic structural equality;
 - cycle validation.
@@ -54,6 +54,14 @@ Acceptance checks:
 - adding a plate to a conditional distribution does not implicitly resample its stochastic parameters;
 - adding a plate to a constant broadcasts the fixed value.
 
+Concrete-value work:
+
+- expose `constant(value, *, plates=(), dtype=None)`;
+- infer supported Boolean, integer, and floating inputs;
+- canonicalize storage to `np.bool_`, `np.int64`, or `np.float64`;
+- derive and enforce four-state support after coercion;
+- reject unsupported kinds and rank/layout mismatches at the boundary.
+
 ## Deliverable 3: phase annotation
 
 Implement distribution-only sampling phases.
@@ -90,6 +98,10 @@ Required work:
   blocked;
 - NumPy sampling for the implemented distributions;
 - concrete deterministic arithmetic, transforms, and reductions.
+
+`Uniform` must support arbitrary symbolic bounds with unit defaults and
+elementwise `low < high` validation. `Bernoulli` must accept symbolic
+probabilities, validate `0 <= p <= 1`, and return canonical Boolean values.
 
 Acceptance checks:
 
@@ -142,6 +154,11 @@ Required work:
 - expected-graph fixtures suitable for testing generated code;
 - error-message snapshots for common plate mistakes;
 - README examples converted to executable tests.
+- a public-import-only static typing fixture;
+- branch coverage of at least 95%;
+- a fixed v0.1 graph-digest fixture and cross-`PYTHONHASHSEED` subprocess check;
+- wheel validation proving that `py.typed` and inline annotations ship without
+  `.pyi` files.
 
 The release candidate is acceptable only if each example is shorter or materially more explicit about stochastic structure than its equivalent imperative NumPy program.
 
@@ -162,14 +179,17 @@ The release candidate is acceptable only if each example is shorter or materiall
 The v0.1 release must contain:
 
 - the typed public runtime interfaces;
+- inline annotations and `py.typed`, with no shipped stub files;
 - NumPy concrete propagation and distribution sampling;
 - full implementations of the six node families;
 - plate-aware deterministic evaluation and the six reductions;
 - phase contexts and partial materialization;
 - structural and checkpoint stochastic equality;
 - tests for the matrix above;
-- the three end-to-end examples;
+- the realistic end-to-end examples;
 - package metadata and generated API documentation.
+- Python 3.10/latest-supported CI for Ruff, ty, tests, coverage, wheel build,
+  wheel inspection, and installed-package smoke tests.
 
 ## Deferred work
 
@@ -193,4 +213,7 @@ Do not begin the following during v0.1 unless the core acceptance work proves im
 - a public backend protocol is deferred;
 - distribution constructors retain their natural parameters (for example,
   `Normal(mu, sigma)`) rather than lowering to standardized distributions;
+- public generic reductions use the immutable singleton objects in
+  `stochastic_programming_library.reductions`;
+- concrete NumPy storage always matches authoritative `ValueMeta.dtype`;
 - custom-node execution support and public graph rewrite APIs are deferred.
