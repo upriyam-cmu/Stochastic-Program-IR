@@ -5,6 +5,7 @@ import numpy as np
 from typing_extensions import override
 
 from ..meta import DataType, ValueMeta, ValueSupport
+from ._numeric import checked_int64_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,8 @@ class _SumReduction(Reduction):
 
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
+        if child.dtype.kind in ("b", "i", "u"):
+            return checked_int64_result(np.sum(child.astype(object), axis=axes))
         return np.sum(child, axis=axes)
 
 
@@ -81,11 +84,17 @@ class _MinReduction(Reduction):
 @dataclass(frozen=True, slots=True)
 class _ProductReduction(Reduction):
     @override
+    def _remap_dtype(self, child: DataType) -> DataType:
+        return max(child, DataType.INT)  # bool -> int
+
+    @override
     def _remap_support(self, child: ValueSupport) -> ValueSupport:
         return child if child != ValueSupport.NEGATIVE_BRANCH else ValueSupport.REAL
 
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
+        if child.dtype.kind in ("b", "i", "u"):
+            return checked_int64_result(np.prod(child.astype(object), axis=axes))
         return np.prod(child, axis=axes)
 
 
@@ -101,11 +110,7 @@ class _LogSumExpReduction(Reduction):
 
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
-        # TODO maybe use scipy? this works though
-        a_max = np.max(child, axis=axes, keepdims=True)
-        return np.squeeze(a_max, axis=axes) + np.log(
-            np.sum(np.exp(child - a_max), axis=axes)
-        )
+        return np.logaddexp.reduce(child, axis=axes)
 
 
 MEAN = _MeanReduction()

@@ -159,7 +159,7 @@ distinct nodes the same label therefore cannot couple their draws.
 Each call to `materialize(...)` selects exactly one run seed:
 
 - the supplied `seed`; or
-- one fresh random 64-bit seed when omitted.
+- one fresh 64-bit seed from operating-system entropy when omitted.
 
 When a distribution is phase-eligible, the pass immediately binds:
 

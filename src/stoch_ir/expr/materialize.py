@@ -40,22 +40,11 @@ from .meta import (
 )
 from .nodes.base import Constant, RandomVariable
 from .nodes.distr.base import RandomDistributionNode
+from .traversal import unique_nodes_postorder, unique_nodes_preorder
 
 
 def _all_nodes(root: RandomVariable) -> tuple[RandomVariable, ...]:
-    nodes: list[RandomVariable] = []
-    seen: set[int] = set()
-
-    def visit(node: RandomVariable) -> None:
-        if id(node) in seen:
-            return
-        seen.add(id(node))
-        nodes.append(node)
-        for dependency in node._dependency_slots:
-            visit(dependency.var)
-
-    visit(root)
-    return tuple(nodes)
+    return unique_nodes_preorder(root)
 
 
 def _normalize_plate_sizes(
@@ -156,27 +145,20 @@ def _evaluate_deterministic_tree(
 ) -> ConcreteValue:
     """Evaluate a value-ready graph without creating a sampling checkpoint."""
 
-    memo: dict[int, ConcreteValue] = {}
-
-    def evaluate(node: RandomVariable) -> ConcreteValue:
-        identity = id(node)
-        if identity in memo:
-            return memo[identity]
+    values: dict[int, ConcreteValue] = {}
+    for node in unique_nodes_postorder(root):
         if isinstance(node, RandomDistributionNode):
             raise UnrealizedGraphError(
                 "a stochastic graph must be materialized before value extraction"
             )
         dependencies = MappingProxyType(
             {
-                dependency.name: evaluate(dependency.var)
+                dependency.name: values[id(dependency.var)]
                 for dependency in node._dependency_slots
             }
         )
-        value = node._evaluate_concrete(dependencies, plate_sizes)
-        memo[identity] = value
-        return value
-
-    return evaluate(root)
+        values[id(node)] = node._evaluate_concrete(dependencies, plate_sizes)
+    return values[id(root)]
 
 
 def _materialize_node(
@@ -187,77 +169,58 @@ def _materialize_node(
     enabled_phases: frozenset[Phase] | None,
     memo: dict[int, RandomVariable],
 ) -> RandomVariable:
-    memo_key = id(node)
-    if memo_key in memo:
-        return memo[memo_key]
+    for current in unique_nodes_postorder(node):
+        memo_key = id(current)
+        if memo_key in memo:
+            continue
+        if isinstance(current, Constant):
+            memo[memo_key] = current
+            continue
 
-    if isinstance(node, Constant):
-        memo[memo_key] = node
-        return node
-
-    if isinstance(node, RandomDistributionNode):
         dependency_changes = {
-            dependency.name: _materialize_node(
-                dependency.var,
-                run_seed=run_seed,
-                plate_sizes=plate_sizes,
-                enabled_phases=enabled_phases,
-                memo=memo,
-            )
-            for dependency in node._dependency_slots
+            dependency.name: memo[id(dependency.var)]
+            for dependency in current._dependency_slots
         }
-        rebuilt = node._rewrite_dependencies_exact(dependency_changes)
-        if not isinstance(rebuilt, RandomDistributionNode):
-            raise TypeError("distribution rewrite changed the node category")
+        rebuilt = current._rewrite_dependencies_exact(dependency_changes)
+        if isinstance(current, RandomDistributionNode):
+            if not isinstance(rebuilt, RandomDistributionNode):
+                raise TypeError("distribution rewrite changed the node category")
 
-        phase_enabled = (
-            rebuilt.phase_requirement is None
-            or enabled_phases is None
-            or rebuilt.phase_requirement in enabled_phases
-        )
-        if phase_enabled and rebuilt._sampling_seed is None:
-            rebuilt = rebuilt.bind_sampling_seed(run_seed)
-
-        output_layout = rebuilt.plate_layout
-        dependencies = _concrete_dependencies(rebuilt, plate_sizes)
-        if rebuilt._sampling_seed is not None and dependencies is not None:
-            rng = np.random.default_rng(rebuilt._sampling_seed)
-            result = Constant(
-                ConcreteValue.wrap(
-                    rebuilt._sample_value(
-                        rng,
-                        dependencies=dependencies,
-                        output_layout=output_layout,
-                        plate_sizes=plate_sizes,
-                    ),
-                    output_layout,
-                    rebuilt.value_meta,
-                )
+            phase_enabled = (
+                rebuilt.phase_requirement is None
+                or enabled_phases is None
+                or rebuilt.phase_requirement in enabled_phases
             )
-        else:
-            result = rebuilt
-        memo[memo_key] = result
-        return result
+            if phase_enabled and rebuilt._sampling_seed is None:
+                rebuilt = rebuilt.bind_sampling_seed(run_seed)
 
-    dependency_changes = {
-        dependency.name: _materialize_node(
-            dependency.var,
-            run_seed=run_seed,
-            plate_sizes=plate_sizes,
-            enabled_phases=enabled_phases,
-            memo=memo,
-        )
-        for dependency in node._dependency_slots
-    }
-    rebuilt = node._rewrite_dependencies_exact(dependency_changes)
-    dependencies = _concrete_dependencies(rebuilt, plate_sizes)
-    result = (
-        Constant(rebuilt._evaluate_concrete(dependencies, plate_sizes))
-        if dependencies is not None
-        else rebuilt
-    )
-    memo[memo_key] = result
-    return result
+            output_layout = rebuilt.plate_layout
+            dependencies = _concrete_dependencies(rebuilt, plate_sizes)
+            if rebuilt._sampling_seed is not None and dependencies is not None:
+                rng = np.random.default_rng(rebuilt._sampling_seed)
+                result = Constant(
+                    ConcreteValue.wrap(
+                        rebuilt._sample_value(
+                            rng,
+                            dependencies=dependencies,
+                            output_layout=output_layout,
+                            plate_sizes=plate_sizes,
+                        ),
+                        output_layout,
+                        rebuilt.value_meta,
+                    )
+                )
+            else:
+                result = rebuilt
+        else:
+            dependencies = _concrete_dependencies(rebuilt, plate_sizes)
+            result = (
+                Constant(rebuilt._evaluate_concrete(dependencies, plate_sizes))
+                if dependencies is not None
+                else rebuilt
+            )
+        memo[memo_key] = result
+    return memo[id(node)]
 
 
 def _materialize_resolved(
@@ -272,7 +235,9 @@ def _materialize_resolved(
     if phases is None:
         enabled_phases = None
     else:
-        enabled_phases = frozenset(phases)
+        enabled_phases = (
+            frozenset({phases}) if isinstance(phases, str) else frozenset(phases)
+        )
         if any(not isinstance(phase, str) or not phase for phase in enabled_phases):
             raise PhaseError("materialization phase names must be non-empty strings")
     run_seed = resolve_run_seed(seed)

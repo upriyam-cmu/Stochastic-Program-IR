@@ -189,6 +189,20 @@ class ConcreteValueTests(unittest.TestCase):
         with self.assertRaises(ValueValidationError):
             constant(np.array(["value"]))
 
+    def test_integer_coercion_rejects_lossy_values(self) -> None:
+        for value in (
+            np.uint64(2**64 - 1),
+            np.array([np.uint64(2**64 - 1)]),
+            2**100,
+            1.5,
+            np.inf,
+        ):
+            with (
+                self.subTest(value=value),
+                self.assertRaises(ValueValidationError),
+            ):
+                constant(cast(Any, value), dtype=DataType.INT)
+
     def test_concrete_equality_rejects_other_objects_and_detects_metadata(self) -> None:
         left = constant(1).realize()
         same = constant(1).realize()

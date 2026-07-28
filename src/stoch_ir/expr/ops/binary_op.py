@@ -1,10 +1,13 @@
+import operator
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
 from typing_extensions import override
 
+from ...errors import ValueValidationError
 from ..meta import DataType, ValueMeta, ValueSupport
+from ._numeric import checked_int64_binary
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,10 @@ def _assert_positive_or_negative(lhs: ValueSupport, rhs: ValueSupport):
     )
 
 
+def _integer_operands(lhs: np.ndarray, rhs: np.ndarray) -> bool:
+    return lhs.dtype.kind in ("b", "i", "u") and rhs.dtype.kind in ("b", "i", "u")
+
+
 @dataclass(frozen=True, slots=True)
 class AddOp(BinOpImpl):
     @override
@@ -47,7 +54,11 @@ class AddOp(BinOpImpl):
 
     @override
     def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-        return lhs + rhs
+        return (
+            checked_int64_binary(lhs, rhs, operator.add)
+            if _integer_operands(lhs, rhs)
+            else lhs + rhs
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +76,11 @@ class SubtractOp(BinOpImpl):
 
     @override
     def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-        return lhs - rhs
+        return (
+            checked_int64_binary(lhs, rhs, operator.sub)
+            if _integer_operands(lhs, rhs)
+            else lhs - rhs
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +102,11 @@ class MultiplyOp(BinOpImpl):
 
     @override
     def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-        return lhs * rhs
+        return (
+            checked_int64_binary(lhs, rhs, operator.mul)
+            if _integer_operands(lhs, rhs)
+            else lhs * rhs
+        )
 
 
 def _division_support_remap(lhs: ValueSupport, rhs: ValueSupport) -> ValueSupport:
@@ -128,6 +147,11 @@ class FloorDivideOp(BinOpImpl):
 
     @override
     def compute_value(self, lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+        bounds = np.iinfo(np.int64)
+        if bool(np.any((lhs == bounds.min) & (rhs == -1))):
+            raise ValueValidationError(
+                "integer operation result is outside int64 range"
+            )
         return lhs // rhs
 
 

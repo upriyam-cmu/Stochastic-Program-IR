@@ -67,11 +67,19 @@ Non-scalar rank must match the number of named plates. Complex, object, and
 string values are rejected. Declared plate order maps to input array-axis order;
 concrete storage is transposed into canonical lexicographic order. Any
 iterable-valued plate argument also accepts a bare string as one plate.
+Integer inputs and operation results must fit in canonical `np.int64` storage
+without changing value.
 
 When distribution `plates` is omitted, the canonical union of parameter plates
 is used. When supplied, it is the complete output layout and must contain every
 parameter plate. The distribution produces one conditionally independent draw
 at each output coordinate.
+
+Literal distribution parameters are checked exactly during construction.
+Symbolic support metadata raises on guaranteed invalidity and warns when
+invalid values remain possible, while exact elementwise checks still run before
+sampling. Support endpoints alone do not trigger symbolic warnings, and no
+operation silently clamps values or introduces an epsilon.
 
 ## Expression inspection
 
@@ -103,6 +111,8 @@ expr.min(*plates)
 expr.prod(*plates)
 expr.logsumexp(*plates)
 ```
+
+The `reduction` keyword is required; `MEAN` above is an example, not a default.
 
 `add_plates` broadcasts an existing value without resampling it. If `expect` is
 supplied, the existing plate set must match exactly before the new plates are
@@ -141,7 +151,8 @@ value = partial.realize(seed=11)
 
 Phase names have no intrinsic order. Enabling a phase permanently clears that
 barrier in the returned immutable graph, but sampling still waits for concrete
-dependencies.
+dependencies. A bare string denotes one phase, so `phases="latent"` is
+equivalent to `phases=("latent",)`.
 
 `RandomVariable.materialize` returns an opaque, non-composable
 `SamplingCheckpoint`. A checkpoint exposes:
@@ -186,7 +197,9 @@ Structural equality compares the represented computation while ignoring object
 aliasing and RNG resolution. It is not algebraic or probabilistic equality.
 Stochastic equality is available only after materialization and additionally
 checks graph-derived node entropy, sharing, fixed plate sizes, and bound
-sampling seeds.
+sampling seeds in the checkpoint's current rewritten state. Sampled
+distributions are constants and do not retain historical provenance; use
+blocked phased checkpoints when comparing unresolved stochastic structure.
 
 ## Errors
 

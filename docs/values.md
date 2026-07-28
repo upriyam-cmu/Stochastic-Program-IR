@@ -25,7 +25,9 @@ offset = constant(
 
 `ValueMeta.dtype` is authoritative. Values are stored as `np.bool_`,
 `np.int64`, or `np.float64`, and narrow support declarations are validated
-after coercion.
+after coercion. Integer conversion must be lossless: inputs and operation
+results outside the canonical `np.int64` range, as well as non-integral
+floating values converted to integers, are rejected.
 
 Multidimensional arrays require one named plate per axis. Complex, object, and
 string arrays are rejected. The declared plate order corresponds to the input

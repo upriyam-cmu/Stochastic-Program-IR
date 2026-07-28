@@ -45,6 +45,7 @@ from ..errors import GraphCycleError
 from ..rng import HashDigest, NodeEntropy, derive_node_entropy
 from .nodes.base import RandomVariable
 from .nodes.distr.base import RandomDistributionNode
+from .traversal import unique_nodes_postorder, unique_nodes_preorder
 
 _HASH_SCHEME = b"spl-v0.1:stochastic-projection:multiplicity"
 
@@ -140,30 +141,11 @@ class StochasticProjection:
 
     @classmethod
     def from_root(cls, root: RandomVariable) -> "StochasticProjection":
-        nodes: list[RandomDistributionNode] = []
-        states: dict[int, int] = {}
-        pending: list[tuple[RandomVariable, bool]] = [(root, False)]
-        while pending:
-            expr, expanded = pending.pop()
-            identity = id(expr)
-            state = states.get(identity, 0)
-            if expanded:
-                states[identity] = 2
-                continue
-            if state == 1:
-                raise GraphCycleError(
-                    "cycle detected while projecting stochastic graph"
-                )
-            if state == 2:
-                continue
-            states[identity] = 1
-            if isinstance(expr, RandomDistributionNode):
-                nodes.append(expr)
-            pending.append((expr, True))
-            pending.extend(
-                (dependency.var, False)
-                for dependency in reversed(expr._dependency_slots)
-            )
+        nodes = [
+            node
+            for node in unique_nodes_preorder(root)
+            if isinstance(node, RandomDistributionNode)
+        ]
 
         edges: list[StochasticInputEdge] = []
         frontier_memo: dict[int, tuple[StochasticFrontierEntry, ...]] = {}
@@ -244,42 +226,41 @@ class ResolvedGraphHashes:
 def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
     projection = StochasticProjection.from_root(root)
     dependency_hashes: dict[int, HashDigest] = {}
-    active: set[int] = set()
+    dependencies_by_consumer: defaultdict[int, list[StochasticInputEdge]] = defaultdict(
+        list
+    )
+    consumers_by_source: defaultdict[int, list[StochasticInputEdge]] = defaultdict(list)
+    for edge in projection.edges:
+        if edge.consumer is not None:
+            dependencies_by_consumer[id(edge.consumer)].append(edge)
+        consumers_by_source[id(edge.source)].append(edge)
 
-    def dependency_hash(node: RandomDistributionNode) -> HashDigest:
-        identity = id(node)
-        if identity in dependency_hashes:
-            return dependency_hashes[identity]
-        if identity in active:
-            raise GraphCycleError("cycle detected while hashing stochastic graph")
-        active.add(identity)
+    for candidate in unique_nodes_postorder(root):
+        if not isinstance(candidate, RandomDistributionNode):
+            continue
+        identity = id(candidate)
         edge_parts: list[bytes] = []
-        for edge in projection.dependencies_of(node):
+        for edge in dependencies_by_consumer[identity]:
             edge_parts.extend(
                 (
                     edge.parameter.encode(),
                     _encode_nonnegative_int(edge.multiplicity),
-                    dependency_hash(edge.source),
+                    dependency_hashes[id(edge.source)],
                 )
             )
         result = _digest(
             b"dependency",
-            f"{type(node).__module__}.{type(node).__qualname__}".encode(),
+            f"{type(candidate).__module__}.{type(candidate).__qualname__}".encode(),
             b"output-plates",
-            *(plate.encode() for plate in node.output_layout),
+            *(plate.encode() for plate in candidate.output_layout),
             *edge_parts,
         )
-        active.remove(identity)
         dependency_hashes[identity] = result
-        return result
-
-    for node in reversed(projection.nodes):
-        dependency_hash(node)
 
     consumer_hashes: dict[int, HashDigest] = {}
     for node in projection.nodes:
         edge_parts = []
-        for edge in projection.consumers_of(node):
+        for edge in consumers_by_source[id(node)]:
             consumer_digest = (
                 b"__output__"
                 if edge.consumer is None
@@ -337,14 +318,10 @@ def stamp_node_entropies(
 ) -> RandomVariable:
     """Rewrite a graph with resolved entropy attached to each distribution."""
 
-    memo: dict[int, RandomVariable] = {}
-
-    def rewrite(node: RandomVariable) -> RandomVariable:
-        identity = id(node)
-        if identity in memo:
-            return memo[identity]
+    rewritten_nodes: dict[int, RandomVariable] = {}
+    for node in unique_nodes_postorder(root):
         rewritten_dependencies = {
-            dependency.name: rewrite(dependency.var)
+            dependency.name: rewritten_nodes[id(dependency.var)]
             for dependency in node._dependency_slots
         }
         rewritten = node._rewrite_dependencies_exact(rewritten_dependencies)
@@ -352,7 +329,5 @@ def stamp_node_entropies(
             if not isinstance(rewritten, RandomDistributionNode):
                 raise TypeError("distribution rewrite changed the node category")
             rewritten = rewritten.with_node_entropy(hashes.node_entropy_for(node))
-        memo[identity] = rewritten
-        return rewritten
-
-    return rewrite(root)
+        rewritten_nodes[id(node)] = rewritten
+    return rewritten_nodes[id(root)]

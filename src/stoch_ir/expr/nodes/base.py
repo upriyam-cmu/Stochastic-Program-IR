@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -17,9 +18,11 @@ from typing_extensions import Self, dataclass_transform, override
 
 from ...errors import (
     DependencyRewriteError,
+    InvalidSupportError,
     MissingPlateSizeError,
     PlateExpectationError,
     PlateSizeMismatchError,
+    PossibleInvalidSupportWarning,
     ValueValidationError,
 )
 from ...rng import Seed
@@ -32,6 +35,7 @@ from ..meta import (
     PlateSizes,
     Scalar,
     ValueMeta,
+    ValueSupport,
 )
 from ..ops import BinOpImpl, Reduction, UnaryOpImpl
 from ..ops.binary_op import AddOp, FloorDivideOp, MultiplyOp, SubtractOp, TrueDivideOp
@@ -325,6 +329,18 @@ class RandomVariable(ABC):
     def _apply_unary_op(self, op: UnaryOpImpl) -> "RandomVariable":
         from .ops import UnaryOpNode
 
+        if isinstance(op, LogOp):
+            match self.value_meta.support:
+                case ValueSupport.NEGATIVE_BRANCH:
+                    raise InvalidSupportError(
+                        "Log does not support negative inputs -- op will fail"
+                    )
+                case ValueSupport.REAL:
+                    warnings.warn(
+                        "Log does not support negative inputs -- op may produce NaN",
+                        PossibleInvalidSupportWarning,
+                        stacklevel=3,
+                    )
         return UnaryOpNode(op, self)
 
     def exp(self) -> "RandomVariable":

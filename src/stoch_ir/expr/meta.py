@@ -69,6 +69,10 @@ class DataType(IntEnum):
     def infer(cls, value: Data) -> "DataType":
         """Infer a supported dtype family from concrete data."""
 
+        if isinstance(value, (int, np.integer)) and not isinstance(
+            value, (bool, np.bool_)
+        ):
+            return cls.INT
         kind = np.asarray(value).dtype.kind
         if kind == "b":
             return cls.BOOL
@@ -84,6 +88,15 @@ class DataType(IntEnum):
     def coerce(self, value: Data) -> np.ndarray:
         """Coerce concrete data into this dtype's canonical NumPy storage."""
 
+        if self is DataType.INT and isinstance(value, (int, np.integer)):
+            integer = int(value)
+            bounds = np.iinfo(np.int64)
+            if not bounds.min <= integer <= bounds.max:
+                raise ValueValidationError(
+                    f"integer value {integer} is outside canonical int64 range"
+                )
+            return np.asarray(integer, dtype=self.numpy_dtype)
+
         source = np.asarray(value)
         if source.dtype.kind not in ("b", "i", "u", "f"):
             raise ValueValidationError(
@@ -91,6 +104,23 @@ class DataType(IntEnum):
             )
         if self is DataType.BOOL and not bool(np.all((source == 0) | (source == 1))):
             raise ValueValidationError("BOOL values must contain only 0 or 1")
+        if self is DataType.INT:
+            bounds = np.iinfo(np.int64)
+            if source.dtype.kind in ("i", "u") and (
+                np.any(source < bounds.min) or np.any(source > bounds.max)
+            ):
+                raise ValueValidationError(
+                    "integer data contains values outside canonical int64 range"
+                )
+            if source.dtype.kind == "f" and (
+                np.any(~np.isfinite(source))
+                or np.any(source != np.trunc(source))
+                or np.any(source < bounds.min)
+                or np.any(source >= bounds.max + 1)
+            ):
+                raise ValueValidationError(
+                    "floating data cannot be losslessly represented as canonical int64"
+                )
         return np.asarray(source, dtype=self.numpy_dtype)
 
 

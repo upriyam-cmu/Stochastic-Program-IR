@@ -6,7 +6,7 @@ module first mixes an optional user label into that structure to form
 node entropy to form the final NumPy sampling seed.
 """
 
-import random
+import secrets
 from dataclasses import dataclass
 from hashlib import blake2s
 from typing import TypeAlias
@@ -53,7 +53,7 @@ def derive_node_entropy(
 def resolve_run_seed(seed: Seed | None) -> Seed:
     """Select the single run seed used by one materialization invocation."""
 
-    return seed if seed is not None else random.getrandbits(64)
+    return seed if seed is not None else secrets.randbits(64)
 
 
 def derive_sampling_seed(

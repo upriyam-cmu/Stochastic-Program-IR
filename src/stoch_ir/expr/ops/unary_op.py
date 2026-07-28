@@ -1,11 +1,10 @@
-import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
 from typing_extensions import override
 
-from ...errors import InvalidSupportError
+from ...errors import ValueValidationError
 from ..meta import DataType, ValueMeta, ValueSupport
 
 
@@ -45,18 +44,11 @@ class ExpOp(UnaryOpImpl):
 class LogOp(UnaryOpImpl):
     @override
     def _remap_support(self, child: ValueSupport) -> ValueSupport:
-        # TODO add specific custom warning types
-        # TODO not sure if stacklevel/skip_file_prefixes would help here
-        # since, we do lazy computation, so it would be hard to point
-        # to the right spot anyways
         match child:
             case ValueSupport.NEGATIVE_BRANCH:
-                raise InvalidSupportError(
-                    "Log does not support negative inputs -- op will fail"
-                )
+                return ValueSupport.REAL
 
             case ValueSupport.REAL:
-                warnings.warn("Log does not support negative inputs -- op may fail")
                 return ValueSupport.REAL
 
             case ValueSupport.UNIT_INTERVAL:
@@ -69,7 +61,8 @@ class LogOp(UnaryOpImpl):
 
     @override
     def compute_value(self, child: np.ndarray) -> np.ndarray:
-        return np.log(child)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.log(child)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +93,12 @@ class AbsOp(UnaryOpImpl):
 
     @override
     def compute_value(self, child: np.ndarray) -> np.ndarray:
+        if child.dtype.kind in ("i", "u") and bool(
+            np.any(child == np.iinfo(np.int64).min)
+        ):
+            raise ValueValidationError(
+                "integer operation result is outside int64 range"
+            )
         return np.abs(child)
 
 

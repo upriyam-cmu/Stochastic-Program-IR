@@ -4,13 +4,16 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 import numpy as np
 
 from stoch_ir import (
+    Bernoulli,
     Normal,
     RandomVariable,
     SamplingCheckpoint,
+    constant,
     sampling_phase,
 )
 from stoch_ir.errors import (
@@ -24,7 +27,7 @@ from stoch_ir.expr.hashing import (
     resolve_stochastic_hashes,
 )
 from stoch_ir.expr.nodes.distr import Gaussian, RandomDistributionNode
-from stoch_ir.rng import NodeEntropy
+from stoch_ir.rng import NodeEntropy, resolve_run_seed
 
 
 class MaterializationTests(unittest.TestCase):
@@ -108,6 +111,13 @@ class MaterializationTests(unittest.TestCase):
         self.assertFalse(
             aliased_checkpoint.stochastically_equal(independent_checkpoint)
         )
+
+    def test_fully_materialized_equality_compares_values_not_provenance(self) -> None:
+        source = Bernoulli(0)
+        shared = (source + source).materialize(seed=1)
+        independent = (Bernoulli(0) + Bernoulli(0)).materialize(seed=2)
+
+        self.assertTrue(shared.stochastically_equal(independent))
 
     def test_structural_equality_memoizes_shared_node_pairs(self) -> None:
         left = Normal(0, 1)
@@ -195,6 +205,19 @@ class MaterializationTests(unittest.TestCase):
             resolved.projection.dependencies_of(root)[0].multiplicity,
             1 << 100,
         )
+
+    def test_deep_graph_passes_are_iterative(self) -> None:
+        deterministic = constant(0.0)
+        stochastic = Normal(0.0, 1.0)
+        distribution_chain = Normal(0.0, 1.0)
+        for _ in range(1_100):
+            deterministic = deterministic + 1.0
+            stochastic = stochastic + 1.0
+            distribution_chain = Normal(distribution_chain, 1.0)
+
+        self.assertEqual(deterministic.realize().data, 1_100)
+        self.assertTrue(np.isfinite(stochastic.realize(seed=1).data))
+        self.assertTrue(np.isfinite(distribution_chain.realize(seed=1).data))
 
     def test_deterministic_operator_kinds_do_not_affect_graph_hashes(self) -> None:
         add_source = Normal(0, 1)
@@ -423,6 +446,13 @@ class MaterializationTests(unittest.TestCase):
         with self.assertRaises(PhaseError):
             expr.materialize(seed=1, phases=("",))
         self.assertEqual(expr.pending_phases, frozenset({"draw"}))
+
+    def test_missing_run_seed_uses_system_entropy(self) -> None:
+        with patch("stoch_ir.rng.secrets.randbits", return_value=123) as randbits:
+            self.assertEqual(resolve_run_seed(None), 123)
+            self.assertEqual(resolve_run_seed(456), 456)
+
+        randbits.assert_called_once_with(64)
 
 
 def test_v01_hash_digest_fixture() -> None:

@@ -251,9 +251,10 @@ The method requires exact set equality and returns the same expression object. I
 ### 6.3 `reduce_plates`
 
 ```python
-expr.reduce_plates(*plates, reduction=reductions.MEAN) -> Expr
+expr.reduce_plates(*plates, reduction=REDUCTION) -> Expr
 ```
 
+`REDUCTION` is a required keyword argument; there is no default reduction.
 Every requested plate must exist and may appear only once. The result removes those plates and preserves the relative order of all remaining plates.
 
 The public `reductions` module exposes canonical immutable singleton
@@ -308,7 +309,8 @@ The context records a default phase only on distribution nodes constructed insid
 
 Nested phase contexts use the innermost active phase. Exiting restores the previous phase. Phase names have no ordering or implicit precedence.
 Every phase name supplied to a context or materialization call must be a
-non-empty string and invalid names raise `PhaseError`.
+non-empty string and invalid names raise `PhaseError`. A bare string supplied
+as `phases` denotes one phase rather than an iterable of characters.
 
 An unphased distribution has no phase barrier and is eligible whenever its
 dependencies are concrete. Omitting `phases` enables every remaining named
@@ -404,6 +406,9 @@ The sampling seed is stored when the distribution's phase is enabled, whether
 or not its dependencies are ready in that pass. Vectorized plate draws consume
 one NumPy generator initialized from that stored sampling seed.
 
+When the caller omits the run seed, the implementation selects it from
+operating-system entropy rather than mutable process-global RNG state.
+
 The optional label never overrides the graph contribution. Consequently,
 reusing a label cannot accidentally couple distinct distribution nodes.
 
@@ -448,7 +453,10 @@ Required behavior:
 ## 11. Numeric execution
 
 v0.1 stores concrete values as NumPy arrays and implements distribution sampling
-with `numpy.random.Generator`. A public backend protocol is deliberately omitted.
+with `numpy.random.Generator`. Canonical numeric storage remains fixed-width:
+integers must be losslessly representable as `np.int64`, and floating values
+are stored as `np.float64`. Values outside the canonical integer range must be
+rejected rather than wrapped. A public backend protocol is deliberately omitted.
 JAX and PyTorch integration may be reconsidered after the graph and
 materialization model has been validated.
 
@@ -470,11 +478,19 @@ Structural equality intentionally ignores allocation identity, aliasing, phases,
 RNG labels, graph-derived node entropy, and bound sampling seeds. It answers whether the same
 deterministic computation and distribution structure is represented.
 
-`SamplingCheckpoint.stochastically_equal` first requires structural equality and
-then compares relevant plate sizes, remaining phase requirements, graph-derived
-node entropy, and any already bound sampling seeds. Consequently, a shared
-distribution used twice is structurally equal but not stochastically equal to
-two independently allocated distributions.
+`SamplingCheckpoint.stochastically_equal` compares the checkpoint's current
+rewritten state. It first requires structural equality and then compares
+relevant plate sizes, remaining phase requirements, graph-derived node entropy,
+and any already bound sampling seeds. Unresolved distributions therefore retain
+their stochastic provenance: a shared distribution used twice is not
+stochastically equal to two independently allocated distributions.
+
+Successfully sampled distributions have become constants. Their historical
+provenance is intentionally not retained, so fully materialized checkpoints
+with identical constant values and plate sizes are stochastically equal even if
+different source graphs or run seeds produced those values. To compare
+provenance, place distributions in phases and create checkpoints with no phases
+enabled before calling `stochastically_equal`.
 
 Equality is not algebraic: `x + y` need not equal `y + x`, and no simplification such as `x + 0 == x` is performed.
 

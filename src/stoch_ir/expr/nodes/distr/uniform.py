@@ -178,7 +178,8 @@ def Uniform(
         Symbolic or scalar lower bound.
     high
         Symbolic or scalar upper bound. It must be strictly greater than
-        ``low`` when sampled.
+        ``low``. Literal bounds are checked during construction; symbolic
+        bounds are checked exactly before sampling.
     plates
         Complete output plate layout. When omitted, the union of parameter
         plates is used.

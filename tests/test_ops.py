@@ -1,4 +1,5 @@
 import unittest
+import warnings
 from typing import Any, cast
 
 import numpy as np
@@ -19,7 +20,9 @@ from stoch_ir.errors import (
     MissingPlateSizeError,
     PlateExpectationError,
     PlateSizeMismatchError,
+    PossibleInvalidSupportWarning,
     UnknownPlateError,
+    ValueValidationError,
 )
 from stoch_ir.expr.meta import PlateLayout
 from stoch_ir.expr.nodes.base import (
@@ -234,6 +237,36 @@ class PlateAwareOperatorTests(unittest.TestCase):
 
         self.assertTrue(np.isneginf(result.data))
 
+    def test_log_possible_invalidity_warns_once(self) -> None:
+        real = constant(np.array([-1.0, 1.0]), plates="row")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = real.log().realize(plate_sizes={"row": 2})
+
+        self.assertTrue(np.isnan(result.data[0]))
+        self.assertEqual(
+            sum(
+                issubclass(item.category, PossibleInvalidSupportWarning)
+                for item in caught
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(
+                issubclass(item.category, RuntimeWarning)
+                and "invalid value" in str(item.message)
+                for item in caught
+            )
+        )
+
+    def test_log_accepts_zero_endpoint_without_warning(self) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = constant(0).log().realize()
+
+        self.assertTrue(np.isneginf(result.data))
+        self.assertEqual(caught, [])
+
     def test_reduction_singletons_and_convenience_methods(self) -> None:
         cases = [
             ("mean", reductions.MEAN, 2.5),
@@ -270,6 +303,39 @@ class PlateAwareOperatorTests(unittest.TestCase):
             negative.prod("row").value_meta.support,
             ValueSupport.REAL,
         )
+        self.assertIs(bools.prod("row").value_meta.dtype, DataType.INT)
+
+    def test_logsumexp_handles_extended_values(self) -> None:
+        cases = [
+            (np.array([-np.inf, -np.inf]), -np.inf),
+            (np.array([np.inf, 0.0]), np.inf),
+        ]
+        for data, expected in cases:
+            with self.subTest(data=data):
+                value = (
+                    constant(data, plates="row")
+                    .logsumexp("row")
+                    .realize(plate_sizes={"row": 2})
+                )
+                self.assertEqual(value.data, expected)
+
+    def test_integer_operators_reject_overflow(self) -> None:
+        bounds = np.iinfo(np.int64)
+        cases = [
+            constant(bounds.max) + 1,
+            constant(bounds.min) - 1,
+            constant(bounds.max) * 2,
+            constant(bounds.min) // -1,
+            abs(constant(bounds.min)),
+            constant(np.array([bounds.max, 1]), plates="row").sum("row"),
+            constant(np.array([bounds.max, 2]), plates="row").prod("row"),
+        ]
+        for expr in cases:
+            with (
+                self.subTest(expr=expr),
+                self.assertRaises(ValueValidationError),
+            ):
+                expr.realize(plate_sizes={"row": 2})
 
     def test_binary_support_resolution_branches(self) -> None:
         positive = constant(2)

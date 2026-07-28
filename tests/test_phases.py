@@ -45,3 +45,12 @@ def test_sampling_phase_rejects_invalid_names(phase: object) -> None:
 def test_materialization_rejects_invalid_phase_names(phase: object) -> None:
     with pytest.raises(PhaseError):
         Normal(0, 1).materialize(phases=cast(Any, (phase,)))
+
+
+def test_materialization_treats_bare_string_as_one_phase() -> None:
+    with sampling_phase("latent"):
+        expr = Normal(0, 1)
+
+    checkpoint = expr.materialize(seed=1, phases="latent")
+
+    assert checkpoint.is_fully_materialized

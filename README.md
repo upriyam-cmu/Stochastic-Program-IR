@@ -139,6 +139,8 @@ canonically as `np.bool_`, `np.int64`, or `np.float64`. Complex, object, string,
 and unnamed multidimensional values are rejected. Declared plate order follows
 the input array axes; storage is transposed when necessary into canonical
 lexicographic order. A bare string such as `plates="group"` denotes one plate.
+Integer inputs and operation results outside the canonical `np.int64` range
+are rejected rather than silently wrapped.
 
 ## Plate algebra
 
@@ -149,7 +151,8 @@ The public operations are deliberately small:
   sampling layout;
 - `add_plates(*new, expect=None)` broadcasts an existing value over new plates;
 - `check_plates(*expected)` validates the complete plate set;
-- `reduce_plates(*plates, reduction=...)` explicitly contracts plates; and
+- `reduce_plates(*plates, reduction=REDUCTION)` explicitly contracts plates
+  with a required reduction argument; and
 - `mean`, `sum`, `max`, `min`, `prod`, and `logsumexp` provide named
   convenience reductions.
 
@@ -163,12 +166,13 @@ algebraic, or absolute probabilistic equivalence. It intentionally ignores
 object aliasing and unresolved randomness:
 
 ```python
-from stoch_ir import Normal
+from stoch_ir import Normal, sampling_phase
 
-x = Normal(0.0, 1.0)
+with sampling_phase("draw"):
+    x = Normal(0.0, 1.0)
 
-shared = x + x
-independent = Normal(0.0, 1.0) + Normal(0.0, 1.0)
+    shared = x + x
+    independent = Normal(0.0, 1.0) + Normal(0.0, 1.0)
 
 assert shared == independent
 ```
@@ -183,6 +187,10 @@ independent_checkpoint = independent.materialize(seed=1, phases=())
 
 assert not shared_checkpoint.stochastically_equal(independent_checkpoint)
 ```
+
+This compares unresolved stochastic provenance in the checkpoints. Once draws
+are materialized into constants, their historical RNG provenance is
+intentionally discarded and equality compares the resulting values.
 
 An `rng_label` supplements graph-derived entropy but never replaces it or opts
 distinct nodes into shared randomness.
