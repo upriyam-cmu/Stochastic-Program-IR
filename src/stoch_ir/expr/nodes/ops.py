@@ -76,13 +76,8 @@ class BinOpNode(RandomVariable):
         )
 
     @override
-    def structurally_equal(self, other: "RandomVariable") -> bool:
-        return (
-            isinstance(other, BinOpNode)
-            and self.op == other.op
-            and self.lhs.structurally_equal(other.lhs)
-            and self.rhs.structurally_equal(other.rhs)
-        )
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
+        return isinstance(other, BinOpNode) and self.op == other.op
 
 
 @rv_impl
@@ -131,12 +126,8 @@ class UnaryOpNode(RandomVariable):
         )
 
     @override
-    def structurally_equal(self, other: "RandomVariable") -> bool:
-        return (
-            isinstance(other, UnaryOpNode)
-            and self.op == other.op
-            and self.arg.structurally_equal(other.arg)
-        )
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
+        return isinstance(other, UnaryOpNode) and self.op == other.op
 
 
 @rv_impl
@@ -201,10 +192,9 @@ class ReductionOpNode(RandomVariable):
         )
 
     @override
-    def structurally_equal(self, other: "RandomVariable") -> bool:
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
         return (
             isinstance(other, ReductionOpNode)
             and self.op == other.op
-            and self.arg.structurally_equal(other.arg)
             and self.removed_plates == other.removed_plates
         )

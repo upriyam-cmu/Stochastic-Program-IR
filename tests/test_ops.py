@@ -228,6 +228,12 @@ class PlateAwareOperatorTests(unittest.TestCase):
         with self.assertWarns(UserWarning):
             self.assertIs(real.log().value_meta.support, ValueSupport.REAL)
 
+    def test_log_zero_uses_numpy_extended_value_without_clamping(self) -> None:
+        with np.errstate(divide="ignore"):
+            result = constant(0.0).log().realize()
+
+        self.assertTrue(np.isneginf(result.data))
+
     def test_reduction_singletons_and_convenience_methods(self) -> None:
         cases = [
             ("mean", reductions.MEAN, 2.5),

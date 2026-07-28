@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, cast
 
 import numpy as np
@@ -14,6 +15,7 @@ from stoch_ir import (
 from stoch_ir.errors import (
     InvalidSupportError,
     PlateExpectationError,
+    PossibleInvalidSupportWarning,
     RngLabelError,
 )
 
@@ -64,7 +66,39 @@ def test_uniform_symbolic_bounds_align_named_plates() -> None:
 @pytest.mark.parametrize(("low", "high"), [(1, 1), (2, 1)])
 def test_uniform_rejects_invalid_elementwise_bounds(low: int, high: int) -> None:
     with pytest.raises(InvalidSupportError, match="strictly less"):
-        Uniform(low, high).realize(seed=1)
+        Uniform(low, high)
+
+
+def test_uniform_validates_aligned_literal_arrays_at_construction() -> None:
+    low = constant(np.array([0.0, 2.0]), plates="row")
+    high = constant(np.array([1.0, 3.0]), plates="col")
+
+    with pytest.raises(InvalidSupportError, match="strictly less"):
+        Uniform(low, high)
+
+
+def test_uniform_warns_when_symbolic_ordering_is_unknown() -> None:
+    bound = Normal(0, 1)
+
+    with pytest.warns(PossibleInvalidSupportWarning, match="low < high"):
+        Uniform(0, bound)
+
+
+def test_uniform_relaxes_symbolic_support_endpoints() -> None:
+    positive = Normal(0, 1).exp()
+    negative = positive * -1
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PossibleInvalidSupportWarning)
+        Uniform(negative, positive)
+
+
+def test_uniform_rejects_guaranteed_invalid_symbolic_supports() -> None:
+    positive = Normal(0, 1).exp()
+    negative = positive * -1
+
+    with pytest.raises(InvalidSupportError, match="guarantee"):
+        Uniform(positive, negative)
 
 
 def test_uniform_rewrites_symbolic_dependencies() -> None:
@@ -118,7 +152,17 @@ def test_bernoulli_plated_probabilities_and_mean_reduction() -> None:
 @pytest.mark.parametrize("p", [-0.1, 1.1])
 def test_bernoulli_rejects_invalid_probabilities(p: float) -> None:
     with pytest.raises(InvalidSupportError, match="0 <= p <= 1"):
-        Bernoulli(p).realize(seed=1)
+        Bernoulli(p)
+
+
+def test_bernoulli_uses_symbolic_support_for_validation() -> None:
+    with pytest.warns(PossibleInvalidSupportWarning, match="0 <= p <= 1"):
+        Bernoulli(Normal(0, 1))
+
+    unit_interval = Bernoulli(0.5)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PossibleInvalidSupportWarning)
+        Bernoulli(unit_interval)
 
 
 def test_bernoulli_rewrites_symbolic_dependency() -> None:
@@ -152,4 +196,31 @@ def test_distribution_rng_label_must_be_nonempty_string(label: object) -> None:
 
 def test_gaussian_rejects_nonpositive_sigma() -> None:
     with pytest.raises(InvalidSupportError, match="strictly positive"):
-        Normal(0, 0).realize(seed=1)
+        Normal(0, 0)
+
+
+def test_gaussian_relaxes_symbolic_support_endpoints() -> None:
+    positive = Normal(0, 1).exp()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PossibleInvalidSupportWarning)
+        Normal(0, positive)
+
+
+def test_gaussian_warns_for_symbolic_negative_interior() -> None:
+    with pytest.warns(PossibleInvalidSupportWarning, match="strict positivity"):
+        Normal(0, Normal(0, 1))
+
+
+def test_gaussian_rejects_guaranteed_invalid_symbolic_support() -> None:
+    negative = Normal(0, 1).exp() * -1
+
+    with pytest.raises(InvalidSupportError, match="guaranteed"):
+        Normal(0, negative)
+
+
+def test_gaussian_checks_nonliteral_parameter_exactly_at_runtime() -> None:
+    symbolic_zero = constant(0.0) + constant(0.0)
+    expr = Normal(0, symbolic_zero)
+
+    with pytest.raises(InvalidSupportError, match="strictly positive"):
+        expr.realize(seed=1)

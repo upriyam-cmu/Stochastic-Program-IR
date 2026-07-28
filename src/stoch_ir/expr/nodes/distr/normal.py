@@ -24,7 +24,12 @@ from ..base import (
     as_random_variable,
     rv_impl,
 )
-from .base import RandomDistributionNode, resolve_output_layout
+from .base import (
+    RandomDistributionNode,
+    direct_constant_data,
+    resolve_output_layout,
+    warn_possible_invalid_parameter,
+)
 
 
 @rv_impl
@@ -45,6 +50,20 @@ class Gaussian(RandomDistributionNode):
     ) -> "Gaussian":
         resolved_mu = as_random_variable(mu)
         resolved_sigma = as_random_variable(sigma)
+        sigma_data = direct_constant_data(resolved_sigma)
+        if sigma_data is not None:
+            if np.any(~np.isfinite(sigma_data) | (sigma_data <= 0)):
+                raise InvalidSupportError("Gaussian sigma must be strictly positive")
+        elif resolved_sigma.value_meta.support is ValueSupport.NEGATIVE_BRANCH:
+            raise InvalidSupportError(
+                "Gaussian sigma support is guaranteed to be nonpositive"
+            )
+        elif resolved_sigma.value_meta.support is ValueSupport.REAL:
+            warn_possible_invalid_parameter(
+                "Gaussian",
+                "sigma",
+                "strict positivity",
+            )
         return Gaussian(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
@@ -75,21 +94,7 @@ class Gaussian(RandomDistributionNode):
 
     @override
     def _compute_value_meta(self) -> ValueMeta:
-        if self.sigma.value_meta.support in (
-            ValueSupport.REAL,
-            ValueSupport.NEGATIVE_BRANCH,
-        ):
-            pass  # TODO add warning about negative sigma being bad practice?
         return ValueMeta(dtype=DataType.FLOAT, support=ValueSupport.REAL)
-
-    @override
-    def structurally_equal(self, other: RandomVariable) -> bool:
-        return (
-            isinstance(other, Gaussian)
-            and self.output_layout == other.output_layout
-            and self.mu.structurally_equal(other.mu)
-            and self.sigma.structurally_equal(other.sigma)
-        )
 
     @override
     def _sample_value(
@@ -115,7 +120,7 @@ class Gaussian(RandomDistributionNode):
             new_layout=output_layout,
             plate_sizes=plate_sizes,
         )
-        if np.any(sigma_data <= 0):
+        if np.any(~np.isfinite(sigma_data) | (sigma_data <= 0)):
             raise InvalidSupportError("Gaussian sigma must be strictly positive")
         return np.asarray(rng.normal(loc=mu_data, scale=sigma_data))
 

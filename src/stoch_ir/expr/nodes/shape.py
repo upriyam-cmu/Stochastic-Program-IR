@@ -103,9 +103,7 @@ class AddPlatesNode(RandomVariable):
         )
 
     @override
-    def structurally_equal(self, other: "RandomVariable") -> bool:
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
         return (
-            isinstance(other, AddPlatesNode)
-            and self.arg.structurally_equal(other.arg)
-            and self.added_plates == other.added_plates
+            isinstance(other, AddPlatesNode) and self.added_plates == other.added_plates
         )

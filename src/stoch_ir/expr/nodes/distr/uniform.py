@@ -18,7 +18,12 @@ from ...meta import (
     ValueSupport,
 )
 from ..base import Dependency, ExprInput, RandomVariable, as_random_variable, rv_impl
-from .base import RandomDistributionNode, resolve_output_layout
+from .base import (
+    RandomDistributionNode,
+    align_direct_constants,
+    resolve_output_layout,
+    warn_possible_invalid_parameter,
+)
 
 
 @rv_impl
@@ -39,6 +44,44 @@ class UniformDistribution(RandomDistributionNode):
     ) -> "UniformDistribution":
         resolved_low = as_random_variable(low)
         resolved_high = as_random_variable(high)
+        aligned_bounds = align_direct_constants(resolved_low, resolved_high)
+        if aligned_bounds is not None:
+            low_data, high_data = aligned_bounds
+            if np.any(
+                ~np.isfinite(low_data)
+                | ~np.isfinite(high_data)
+                | (low_data >= high_data)
+            ):
+                raise InvalidSupportError(
+                    "Uniform requires low to be strictly less than high"
+                )
+        else:
+            low_support = resolved_low.value_meta.support
+            high_support = resolved_high.value_meta.support
+            if (
+                low_support
+                in (
+                    ValueSupport.UNIT_INTERVAL,
+                    ValueSupport.POSITIVE_BRANCH,
+                )
+                and high_support is ValueSupport.NEGATIVE_BRANCH
+            ):
+                raise InvalidSupportError(
+                    "Uniform bound supports guarantee low >= high"
+                )
+            if not (
+                low_support is ValueSupport.NEGATIVE_BRANCH
+                and high_support
+                in (
+                    ValueSupport.UNIT_INTERVAL,
+                    ValueSupport.POSITIVE_BRANCH,
+                )
+            ):
+                warn_possible_invalid_parameter(
+                    "Uniform",
+                    "low/high",
+                    "low < high",
+                )
         return UniformDistribution(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
@@ -88,15 +131,6 @@ class UniformDistribution(RandomDistributionNode):
         return ValueMeta(dtype=DataType.FLOAT, support=support)
 
     @override
-    def structurally_equal(self, other: RandomVariable) -> bool:
-        return (
-            isinstance(other, UniformDistribution)
-            and self.output_layout == other.output_layout
-            and self.low.structurally_equal(other.low)
-            and self.high.structurally_equal(other.high)
-        )
-
-    @override
     def _sample_value(
         self,
         rng: np.random.Generator,
@@ -120,7 +154,9 @@ class UniformDistribution(RandomDistributionNode):
             new_layout=output_layout,
             plate_sizes=plate_sizes,
         )
-        if np.any(low_data >= high_data):
+        if np.any(
+            ~np.isfinite(low_data) | ~np.isfinite(high_data) | (low_data >= high_data)
+        ):
             raise InvalidSupportError(
                 "Uniform requires low to be strictly less than high"
             )

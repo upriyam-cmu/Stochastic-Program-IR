@@ -433,10 +433,41 @@ class RandomVariable(ABC):
         return realize(self, seed=seed, plate_sizes=plate_sizes)
 
     @abstractmethod
-    def structurally_equal(self, other: "RandomVariable") -> bool:
-        """Compare exact computation structure while ignoring RNG resolution."""
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
+        """Compare node-local structure without descending into dependencies."""
 
         ...
+
+    def structurally_equal(self, other: "RandomVariable") -> bool:
+        """Compare exact computation structure with memoized DAG traversal."""
+
+        if not isinstance(other, RandomVariable):
+            return False
+
+        pending: list[tuple[RandomVariable, RandomVariable]] = [(self, other)]
+        compared_pairs: set[tuple[int, int]] = set()
+        while pending:
+            left, right = pending.pop()
+            pair = (id(left), id(right))
+            if pair in compared_pairs:
+                continue
+            compared_pairs.add(pair)
+
+            if not left._structurally_equal_shallow(right):
+                return False
+            left_dependencies = left._dependency_slots
+            right_dependencies = right._dependency_slots
+            if len(left_dependencies) != len(right_dependencies):
+                return False
+            for left_dependency, right_dependency in zip(
+                left_dependencies,
+                right_dependencies,
+                strict=True,
+            ):
+                if left_dependency.name != right_dependency.name:
+                    return False
+                pending.append((left_dependency.var, right_dependency.var))
+        return True
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, RandomVariable) and self.structurally_equal(other)
@@ -498,7 +529,7 @@ class Constant(RandomVariable):
         return self.val
 
     @override
-    def structurally_equal(self, other: "RandomVariable") -> bool:
+    def _structurally_equal_shallow(self, other: "RandomVariable") -> bool:
         return isinstance(other, Constant) and self.val == other.val
 
 

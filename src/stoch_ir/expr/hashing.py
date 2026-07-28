@@ -4,8 +4,8 @@ Only distribution nodes consume randomness, so the hash scheme deliberately
 contracts deterministic nodes. The resulting stochastic multigraph retains:
 
 * the nearest upstream distribution nodes for each named input;
-* the left-to-right occurrence ordinal within that input;
-* repeated edges when one distribution is consumed more than once; and
+* one edge per distinct source at that boundary, in first-occurrence order;
+* the multiplicity with which each source is consumed; and
 * a synthetic output consumer for the stochastic frontier of the root.
 
 For each distribution ``v`` the resolver computes:
@@ -13,13 +13,13 @@ For each distribution ``v`` the resolver computes:
 ``D(v)``
     A dependency hash from the distribution type, complete output plate layout,
     and every
-    ``(input name, ordinal, D(source))`` edge.
+    ``(input name, multiplicity, D(source))`` edge.
 
 ``C(v)``
     A direct-consumer hash from the sorted *multiset* of
-    ``(D(consumer), input name, ordinal)`` edges. Duplicate uses remain
-    duplicate entries, so consuming a node twice differs from consuming it
-    once. Descendants beyond the direct stochastic consumer are excluded.
+    ``(D(consumer), input name, multiplicity)`` edges. Consuming a node twice
+    therefore differs from consuming it once. Descendants beyond the direct
+    stochastic consumer are excluded.
 
 ``E(v)``
     A canonical traversal ordinal among nodes with identical ``(D, C)``.
@@ -46,7 +46,7 @@ from ..rng import HashDigest, NodeEntropy, derive_node_entropy
 from .nodes.base import RandomVariable
 from .nodes.distr.base import RandomDistributionNode
 
-_HASH_SCHEME = b"spl-v0.1:stochastic-projection"
+_HASH_SCHEME = b"spl-v0.1:stochastic-projection:multiplicity"
 
 
 def _digest(*parts: bytes) -> HashDigest:
@@ -59,30 +59,75 @@ def _digest(*parts: bytes) -> HashDigest:
 
 @dataclass(frozen=True, slots=True)
 class StochasticInputEdge:
-    """One occurrence of a distribution at a stochastic consumer boundary."""
+    """One distinct source at a stochastic consumer boundary."""
 
     source: RandomDistributionNode
     consumer: RandomDistributionNode | None
     parameter: str
-    ordinal: int
+    multiplicity: int
 
     @property
     def is_output_edge(self) -> bool:
         return self.consumer is None
 
 
+@dataclass(frozen=True, slots=True)
+class StochasticFrontierEntry:
+    """A nearest source and its repeated-use count."""
+
+    source: RandomDistributionNode
+    multiplicity: int
+
+
 def stochastic_frontier(
     expr: RandomVariable,
-) -> tuple[RandomDistributionNode, ...]:
-    """Return nearest upstream distributions, preserving use multiplicity."""
+    *,
+    _memo: dict[int, tuple[StochasticFrontierEntry, ...]] | None = None,
+) -> tuple[StochasticFrontierEntry, ...]:
+    """Return a memoized, multiplicity-compressed stochastic frontier."""
 
-    if isinstance(expr, RandomDistributionNode):
-        return (expr,)
-    return tuple(
-        node
-        for dependency in expr._dependency_slots
-        for node in stochastic_frontier(dependency.var)
-    )
+    memo = {} if _memo is None else _memo
+    active: set[int] = set()
+    pending: list[tuple[RandomVariable, bool]] = [(expr, False)]
+    while pending:
+        node, expanded = pending.pop()
+        identity = id(node)
+        if identity in memo:
+            continue
+        if expanded:
+            entries: list[StochasticFrontierEntry] = []
+            entry_indices: dict[int, int] = {}
+            for dependency in node._dependency_slots:
+                for entry in memo[id(dependency.var)]:
+                    source_identity = id(entry.source)
+                    index = entry_indices.get(source_identity)
+                    if index is None:
+                        entry_indices[source_identity] = len(entries)
+                        entries.append(entry)
+                    else:
+                        previous = entries[index]
+                        entries[index] = StochasticFrontierEntry(
+                            source=previous.source,
+                            multiplicity=previous.multiplicity + entry.multiplicity,
+                        )
+            memo[identity] = tuple(entries)
+            active.remove(identity)
+            continue
+
+        if identity in active:
+            raise GraphCycleError("cycle detected while resolving stochastic frontier")
+        active.add(identity)
+        if isinstance(node, RandomDistributionNode):
+            memo[identity] = (StochasticFrontierEntry(node, 1),)
+            active.remove(identity)
+            continue
+        pending.append((node, True))
+        pending.extend(
+            (dependency.var, False)
+            for dependency in reversed(node._dependency_slots)
+            if id(dependency.var) not in memo
+        )
+    return memo[id(expr)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,51 +141,53 @@ class StochasticProjection:
     @classmethod
     def from_root(cls, root: RandomVariable) -> "StochasticProjection":
         nodes: list[RandomDistributionNode] = []
-        seen: set[int] = set()
-        active: set[int] = set()
-
-        def visit_expression(expr: RandomVariable) -> None:
+        states: dict[int, int] = {}
+        pending: list[tuple[RandomVariable, bool]] = [(root, False)]
+        while pending:
+            expr, expanded = pending.pop()
             identity = id(expr)
-            if identity in active:
+            state = states.get(identity, 0)
+            if expanded:
+                states[identity] = 2
+                continue
+            if state == 1:
                 raise GraphCycleError(
                     "cycle detected while projecting stochastic graph"
                 )
+            if state == 2:
+                continue
+            states[identity] = 1
             if isinstance(expr, RandomDistributionNode):
-                if identity in seen:
-                    return
-                seen.add(identity)
                 nodes.append(expr)
-                active.add(identity)
-                for dependency in expr._dependency_slots:
-                    visit_expression(dependency.var)
-                active.remove(identity)
-                return
-            active.add(identity)
-            for dependency in expr._dependency_slots:
-                visit_expression(dependency.var)
-            active.remove(identity)
-
-        visit_expression(root)
+            pending.append((expr, True))
+            pending.extend(
+                (dependency.var, False)
+                for dependency in reversed(expr._dependency_slots)
+            )
 
         edges: list[StochasticInputEdge] = []
+        frontier_memo: dict[int, tuple[StochasticFrontierEntry, ...]] = {}
         for consumer in nodes:
             for dependency in consumer._dependency_slots:
-                for ordinal, source in enumerate(stochastic_frontier(dependency.var)):
+                for entry in stochastic_frontier(
+                    dependency.var,
+                    _memo=frontier_memo,
+                ):
                     edges.append(
                         StochasticInputEdge(
-                            source=source,
+                            source=entry.source,
                             consumer=consumer,
                             parameter=dependency.name,
-                            ordinal=ordinal,
+                            multiplicity=entry.multiplicity,
                         )
                     )
-        for ordinal, source in enumerate(stochastic_frontier(root)):
+        for entry in stochastic_frontier(root, _memo=frontier_memo):
             edges.append(
                 StochasticInputEdge(
-                    source=source,
+                    source=entry.source,
                     consumer=None,
                     parameter="__output__",
-                    ordinal=ordinal,
+                    multiplicity=entry.multiplicity,
                 )
             )
         return StochasticProjection(root, tuple(nodes), tuple(edges))
@@ -211,7 +258,7 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
             edge_parts.extend(
                 (
                     edge.parameter.encode(),
-                    edge.ordinal.to_bytes(8, byteorder="little"),
+                    _encode_nonnegative_int(edge.multiplicity),
                     dependency_hash(edge.source),
                 )
             )
@@ -243,7 +290,7 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
                     b"consumer-edge",
                     consumer_digest,
                     edge.parameter.encode(),
-                    edge.ordinal.to_bytes(8, byteorder="little"),
+                    _encode_nonnegative_int(edge.multiplicity),
                 )
             )
         consumer_hashes[id(node)] = _digest(
@@ -275,6 +322,13 @@ def resolve_stochastic_hashes(root: RandomVariable) -> ResolvedGraphHashes:
         projection=projection,
         _parts_by_identity=MappingProxyType(parts_by_identity),
     )
+
+
+def _encode_nonnegative_int(value: int) -> bytes:
+    if value < 0:
+        raise ValueError("cannot encode a negative integer")
+    size = max(1, (value.bit_length() + 7) // 8)
+    return value.to_bytes(size, byteorder="little")
 
 
 def stamp_node_entropies(

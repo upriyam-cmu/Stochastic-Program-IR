@@ -163,8 +163,21 @@ distinct nodes into a shared random stream. Shared randomness is represented by
 reusing the same distribution node.
 
 The graph contribution is derived from a stochastic-only projection containing
-stochastic dependencies, direct stochastic consumers, structural input
-ordinals, and a canonical enumeration for otherwise symmetric nodes.
+stochastic dependencies, direct stochastic consumers, repeated-use
+multiplicities, and a canonical enumeration for otherwise symmetric nodes.
+
+Distribution parameters are validated in three stages:
+
+- literal `Constant` arguments are inspected exactly at construction;
+- symbolic arguments use conservative support metadata, with an error when
+  invalidity is guaranteed and a warning when invalid values remain possible;
+- concrete sampled parameters are checked exactly immediately before calling
+  NumPy.
+
+Support endpoints alone do not cause a symbolic warning. This permits
+closed-interval metadata to stand in for domains whose mathematical boundary
+has extended values. The library does not silently clamp values or introduce
+an epsilon; stabilized behavior must be represented by an explicit operation.
 
 `Uniform` has symbolic bounds, `FLOAT` output, and requires `low < high`
 elementwise at sampling. Its conservative support is:
@@ -404,11 +417,10 @@ distribution nodes. For each distribution `v`:
 
 - `D(v)` hashes its distribution type, complete output plate layout, and the
   nearest upstream stochastic nodes for every named parameter;
-- every projected input edge retains its parameter name and an occurrence
-  ordinal, so consuming one node twice differs from consuming it once;
+- every projected input edge retains its parameter name and repeated-use
+  multiplicity, so consuming one node twice differs from consuming it once;
 - `C(v)` hashes the sorted multiset of direct stochastic consumers of `v`,
-  using each consumer's dependency hash, parameter name, and occurrence
-  ordinal;
+  using each consumer's dependency hash, parameter name, and multiplicity;
 - `E(v)` canonically enumerates separately allocated nodes with identical
   `(D, C)` context;
 - the final graph hash is `H_v0.1(D(v), C(v), E(v))`.
@@ -469,6 +481,10 @@ Equality is not algebraic: `x + y` need not equal `y + x`, and no simplification
 Concrete NumPy arrays use exact value comparison. Approximate numeric comparison
 is outside structural equality and outside v0.1.
 
+Structural comparison memoizes pairs of node identities while traversing the
+two DAGs. Sharing remains semantically ignored, but a shared subgraph pair is
+not compared repeatedly.
+
 ## 13. Errors
 
 The documented error hierarchy under `stoch_ir.errors` is:
@@ -489,6 +505,13 @@ StochIRError
 │   └── UnrealizedGraphError
 └── ValueValidationError
     └── InvalidSupportError
+```
+
+Warnings have a separate hierarchy:
+
+```text
+StochIRWarning
+└── PossibleInvalidSupportWarning
 ```
 
 Errors should report the relevant node, requested operation, expected state, and actual state where applicable.

@@ -5,6 +5,10 @@ class StochIRError(Exception):
     """Base class for all documented Stochastic Program IR errors."""
 
 
+class StochIRWarning(UserWarning):
+    """Base class for all documented Stochastic Program IR warnings."""
+
+
 class GraphValidationError(StochIRError):
     """Raised when an expression graph violates a structural invariant."""
 
@@ -57,6 +61,10 @@ class InvalidSupportError(ValueValidationError):
     """Raised when an operation or distribution receives invalid support."""
 
 
+class PossibleInvalidSupportWarning(StochIRWarning):
+    """Warns when metadata cannot prove that a parameter is valid."""
+
+
 class UnrealizedGraphError(MaterializationError):
     """Raised when concrete data is requested from an unrealized graph."""
 
@@ -80,8 +88,10 @@ __all__ = [
     "PlateError",
     "PlateExpectationError",
     "PlateSizeMismatchError",
+    "PossibleInvalidSupportWarning",
     "RngLabelError",
     "StochIRError",
+    "StochIRWarning",
     "UnknownPlateError",
     "UnrealizedGraphError",
     "ValueValidationError",

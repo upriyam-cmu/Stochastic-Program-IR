@@ -191,6 +191,7 @@ sampling seeds.
 ## Errors
 
 Documented failures live under `stoch_ir.errors`. All public exceptions derive
-from `errors.StochIRError`. The curated hierarchy covers graph validation,
-plates, phases, materialization, concrete-value validation, and invalid
-distribution support.
+from `errors.StochIRError`, and all public warnings derive from
+`errors.StochIRWarning`. The curated hierarchies cover graph validation,
+plates, phases, materialization, concrete-value validation, and invalid or
+possibly invalid distribution support.

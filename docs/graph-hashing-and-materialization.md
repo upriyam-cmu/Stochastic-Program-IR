@@ -40,11 +40,11 @@ D ──┘
 ```
 
 If `A`, `B`, `C`, `D`, and `X` are distributions, the projection gives `X`
-four stochastic input occurrences. The deterministic operator kinds are not
-encoded, but each occurrence retains:
+four stochastic sources. The deterministic operator kinds are not encoded,
+but each distinct source retains:
 
 - the dependency parameter of `X` through which it arrives; and
-- its left-to-right ordinal within that deterministic frontier.
+- its repeated-use multiplicity within that deterministic frontier.
 
 This is intentional. The hash is a semi-stable stochastic address, not a full
 serialization of the computation DAG. Structural equality remains responsible
@@ -54,25 +54,25 @@ for comparing deterministic computation.
 
 Projection walks from the requested expression root toward its dependencies.
 For every named dependency of a distribution consumer, it finds the nearest
-upstream distributions through deterministic nodes. Each occurrence becomes an
-edge:
+upstream distributions through deterministic nodes. Each distinct source at a
+consumer boundary becomes an edge:
 
 ```text
-(source distribution, consumer distribution, parameter name, ordinal)
+(source distribution, consumer distribution, parameter name, multiplicity)
 ```
 
-Edges form a multiset rather than a set. If a deterministic parameter consumes
-the same source twice, two edges survive:
+If a deterministic parameter consumes the same source twice, one edge records
+multiplicity two:
 
 ```python
 source = Normal(0, 1)
-single = Normal(source, 1)  # one projected edge
-repeated = Normal(source + source, 1)  # two projected edges
+single = Normal(source, 1)  # multiplicity 1
+repeated = Normal(source + source, 1)  # multiplicity 2
 ```
 
-The two graphs therefore derive different hashes even though both projected
-edges point to the same source object. Reusing the same node still represents
-one sampled value; edge multiplicity records that value's repeated use.
+The two graphs therefore derive different hashes. Reusing the same node still
+represents one sampled value; the count records that value's repeated use
+without expanding an aliased deterministic DAG.
 
 The nearest distributions on the root's stochastic frontier receive synthetic
 `"__output__"` consumer edges. This gives root-facing usage local influence
@@ -92,7 +92,7 @@ For each distribution node `v`, the pass computes four values.
 - the distribution's complete output plate layout;
 - for each projected stochastic input, in canonical dependency-name order:
   - parameter name;
-  - occurrence ordinal;
+  - repeated-use multiplicity;
   - the source distribution's dependency hash.
 
 This recursively captures the upstream stochastic structure.
@@ -103,12 +103,11 @@ For every direct projected consumer edge from `v`, the pass hashes:
 
 - the consumer's dependency hash, or the synthetic output marker;
 - the consumer parameter name;
-- the occurrence ordinal.
+- the repeated-use multiplicity.
 
-Those edge hashes are sorted and hashed as a multiset. Thus the result is
-independent of incidental traversal order, while duplicate consumption remains
-visible. Deeper descendants beyond the direct stochastic consumer are not
-included.
+Those edge hashes are sorted before hashing. Thus the result is independent of
+incidental traversal order, while repeated consumption remains visible. Deeper
+descendants beyond the direct stochastic consumer are not included.
 
 ### 4.3 Enumeration `E(v)`
 

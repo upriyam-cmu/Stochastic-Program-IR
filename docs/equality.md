@@ -16,6 +16,10 @@ assert shared == independent
 This is exact structural comparison, not numerical closeness, algebraic
 equivalence, or equality of probability laws.
 
+Comparison uses a memo table keyed by pairs of node identities. Aliasing is
+still ignored semantically, but a shared subgraph is traversed only once for
+each counterpart rather than expanded repeatedly.
+
 Graph-aware entropy is resolved as part of materialization. A checkpoint can
 therefore compare stochastic sharing as well:
 

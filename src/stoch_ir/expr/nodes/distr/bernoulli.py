@@ -18,7 +18,12 @@ from ...meta import (
     ValueSupport,
 )
 from ..base import Dependency, ExprInput, RandomVariable, as_random_variable, rv_impl
-from .base import RandomDistributionNode, resolve_output_layout
+from .base import (
+    RandomDistributionNode,
+    direct_constant_data,
+    resolve_output_layout,
+    warn_possible_invalid_parameter,
+)
 
 
 @rv_impl
@@ -36,6 +41,20 @@ class BernoulliDistribution(RandomDistributionNode):
         phase_requirement: Phase = None,
     ) -> "BernoulliDistribution":
         resolved_p = as_random_variable(p)
+        probability_data = direct_constant_data(resolved_p)
+        if probability_data is not None:
+            if np.any(
+                ~np.isfinite(probability_data)
+                | (probability_data < 0)
+                | (probability_data > 1)
+            ):
+                raise InvalidSupportError("Bernoulli p must satisfy 0 <= p <= 1")
+        elif resolved_p.value_meta.support is not ValueSupport.UNIT_INTERVAL:
+            warn_possible_invalid_parameter(
+                "Bernoulli",
+                "p",
+                "0 <= p <= 1",
+            )
         return BernoulliDistribution(
             phase_requirement=phase_requirement,
             rng_label=rng_label,
@@ -64,14 +83,6 @@ class BernoulliDistribution(RandomDistributionNode):
         )
 
     @override
-    def structurally_equal(self, other: RandomVariable) -> bool:
-        return (
-            isinstance(other, BernoulliDistribution)
-            and self.output_layout == other.output_layout
-            and self.p.structurally_equal(other.p)
-        )
-
-    @override
     def _sample_value(
         self,
         rng: np.random.Generator,
@@ -88,7 +99,11 @@ class BernoulliDistribution(RandomDistributionNode):
             new_layout=output_layout,
             plate_sizes=plate_sizes,
         )
-        if np.any((probability_data < 0) | (probability_data > 1)):
+        if np.any(
+            ~np.isfinite(probability_data)
+            | (probability_data < 0)
+            | (probability_data > 1)
+        ):
             raise InvalidSupportError("Bernoulli p must satisfy 0 <= p <= 1")
         return np.asarray(rng.binomial(1, probability_data), dtype=np.bool_)
 

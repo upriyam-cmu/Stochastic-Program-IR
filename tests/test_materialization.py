@@ -109,6 +109,15 @@ class MaterializationTests(unittest.TestCase):
             aliased_checkpoint.stochastically_equal(independent_checkpoint)
         )
 
+    def test_structural_equality_memoizes_shared_node_pairs(self) -> None:
+        left = Normal(0, 1)
+        right = Normal(0, 1)
+        for _ in range(100):
+            left = left + left
+            right = right + right
+
+        self.assertTrue(left.structurally_equal(right))
+
     def test_equivalent_allocations_resolve_equivalent_entropy(self) -> None:
         with sampling_phase("draw"):
             left = Normal(0, 1) + Normal(0, 1)
@@ -166,7 +175,25 @@ class MaterializationTests(unittest.TestCase):
         )
         self.assertEqual(
             len(repeated.projection.dependencies_of(repeated_root)),
+            1,
+        )
+        self.assertEqual(
+            repeated.projection.dependencies_of(repeated_root)[0].multiplicity,
             2,
+        )
+
+    def test_shared_dag_hashing_compresses_frontier_multiplicity(self) -> None:
+        source = Normal(0, 1)
+        parameter = source
+        for _ in range(100):
+            parameter = parameter + parameter
+        root = Normal(parameter, 1)
+
+        resolved = resolve_stochastic_hashes(root)
+
+        self.assertEqual(
+            resolved.projection.dependencies_of(root)[0].multiplicity,
+            1 << 100,
         )
 
     def test_deterministic_operator_kinds_do_not_affect_graph_hashes(self) -> None:
@@ -403,8 +430,8 @@ def test_v01_hash_digest_fixture() -> None:
     second = Normal(first + first, 1)
     hashes = resolve_stochastic_hashes(second)
 
-    assert hashes.for_node(first).final.hex() == "8374705384dc9f224cb5000969433b72"
-    assert hashes.for_node(second).final.hex() == "b4230971a6bddec783123c532eac5a84"
+    assert hashes.for_node(first).final.hex() == "c049e037ee10546bc5ce8f4152bb0a0d"
+    assert hashes.for_node(second).final.hex() == "ce31fa58f19043f1cc9307b74f7052dc"
 
 
 def test_hash_digest_is_stable_across_python_hash_seeds() -> None:

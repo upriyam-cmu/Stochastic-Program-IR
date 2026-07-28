@@ -90,9 +90,9 @@ Required work:
 
 - stable seed normalization;
 - a stochastic-only graph projection;
-- dependency hashes, direct-consumer hashes, structural input ordinals, and
+- dependency hashes, direct-consumer hashes, repeated-use multiplicities, and
   symmetric-node enumeration;
-- duplicate projected edges for repeated stochastic consumption;
+- compressed projected edges for repeated stochastic consumption;
 - optional `rng_label` entropy mixed after the graph hash;
 - node-entropy resolution coupled to initial materialization;
 - one run seed selected per materialization invocation;

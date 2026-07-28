@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
@@ -7,6 +8,7 @@ from typing_extensions import Self, override
 
 from ....errors import (
     PlateExpectationError,
+    PossibleInvalidSupportWarning,
     RngLabelError,
     UnrealizedGraphError,
     UnresolvedRandomnessError,
@@ -18,7 +20,7 @@ from ....rng import (
     derive_sampling_seed,
 )
 from ...meta import ConcreteValue, Phase, Plate, PlateLayout, PlateSizes
-from ..base import RandomVariable, rv_impl
+from ..base import Constant, RandomVariable, rv_impl
 
 
 @rv_impl
@@ -67,6 +69,10 @@ class RandomDistributionNode(RandomVariable, ABC):
     @override
     def _compute_has_value(self) -> bool:
         return False
+
+    @override
+    def _structurally_equal_shallow(self, other: RandomVariable) -> bool:
+        return type(self) is type(other) and self.output_layout == other.output_layout
 
     def with_node_entropy(self, node_entropy: NodeEntropy) -> Self:
         if self._node_entropy is not None and self._node_entropy != node_entropy:
@@ -120,3 +126,62 @@ def resolve_output_layout(
     if plates is not None:
         return PlateLayout.wrap(plates)
     return PlateLayout.union(*(dependency.plate_layout for dependency in dependencies))
+
+
+def direct_constant_data(expr: RandomVariable) -> np.ndarray | None:
+    """Return literal constant data without evaluating deterministic graphs."""
+
+    return expr.val.data if isinstance(expr, Constant) else None
+
+
+def warn_possible_invalid_parameter(
+    distribution: str,
+    parameter: str,
+    requirement: str,
+) -> None:
+    warnings.warn(
+        f"{distribution} parameter {parameter!r} may be invalid: "
+        f"support metadata cannot prove {requirement}",
+        PossibleInvalidSupportWarning,
+        stacklevel=4,
+    )
+
+
+def align_direct_constants(
+    *expressions: RandomVariable,
+) -> tuple[np.ndarray, ...] | None:
+    """Align literal constants by named plates, or return ``None`` on conflict."""
+
+    constants = tuple(
+        expression if isinstance(expression, Constant) else None
+        for expression in expressions
+    )
+    if any(constant is None for constant in constants):
+        return None
+
+    resolved = tuple(constant for constant in constants if constant is not None)
+    output_layout = PlateLayout.union(*(constant.plate_layout for constant in resolved))
+    plate_sizes: dict[Plate, int] = {}
+    for constant in resolved:
+        for plate, size in zip(
+            constant.plate_layout,
+            constant.val.data.shape,
+            strict=True,
+        ):
+            previous = plate_sizes.setdefault(plate, size)
+            if previous != size:
+                return None
+
+    aligned: list[np.ndarray] = []
+    for constant in resolved:
+        shape = [plate_sizes[plate] for plate in output_layout]
+        existing_shape = [
+            constant.val.data.shape[constant.plate_layout.axis(plate)]
+            if plate in constant.plate_layout.as_set
+            else 1
+            for plate in output_layout
+        ]
+        aligned.append(
+            np.broadcast_to(constant.val.data.reshape(existing_shape), shape)
+        )
+    return tuple(aligned)

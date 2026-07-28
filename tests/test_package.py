@@ -97,8 +97,14 @@ def test_reduction_singletons_share_the_public_opaque_type() -> None:
         assert isinstance(reduction, reductions.Reduction)
 
 
-def test_public_errors_share_one_base_class() -> None:
+def test_public_diagnostics_share_their_documented_base_classes() -> None:
     public_errors = [
-        getattr(errors, name) for name in errors.__all__ if name != "StochIRError"
+        getattr(errors, name)
+        for name in errors.__all__
+        if name not in {"StochIRError", "StochIRWarning"}
     ]
-    assert all(issubclass(error, errors.StochIRError) for error in public_errors)
+    assert all(
+        issubclass(error, errors.StochIRError)
+        or issubclass(error, errors.StochIRWarning)
+        for error in public_errors
+    )
