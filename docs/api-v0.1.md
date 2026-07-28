@@ -1,59 +1,61 @@
 # v0.1 Public API Contract
 
-The typed runtime under `src/stoch_ir` is the
-machine-readable API contract. This page summarizes the currently implemented
-surface.
+The inline-typed runtime is the machine-readable contract. This page defines
+the intentionally curated alpha surface.
 
 ## Top-level imports
 
 ```python
 from stoch_ir import (
     Bernoulli,
-    BernoulliDistribution,
     ConcreteValue,
-    Constant,
     DataType,
-    Gaussian,
     Normal,
-    PlateLayout,
     RandomVariable,
     SamplingCheckpoint,
     Uniform,
-    UniformDistribution,
     ValueMeta,
     ValueSupport,
-    bernoulli,
     constant,
-    current_sampling_phase,
+    errors,
     exp,
     log,
-    normal,
     reductions,
     sampling_phase,
     softplus,
-    uniform,
 )
+
+from stoch_ir import __version__
 ```
 
-The package is inline-typed and ships `py.typed`. No public symbol exists only
-in a `.pyi` file.
+Concrete node classes, plate layouts, dependency-rewrite hooks, current phase
+state, lowercase distribution aliases, and generic operation implementations
+are internal.
 
-## Construction
+## Construction and transforms
 
 ```python
 constant(value, *, plates=(), dtype=None)
-Constant.of(value, dtype)
-Constant.array(array, dtype, plate_layout)
 Normal(mu, sigma, *, rng_label=None)
 Uniform(low=0.0, high=1.0, *, rng_label=None)
 Bernoulli(p, *, rng_label=None)
+
+exp(expr)
+log(expr)
+softplus(expr)
+
+expr.exp()
+expr.log()
+expr.softplus()
+expr.abs()
+abs(expr)
 ```
 
-Python scalar distribution parameters are coerced to constants. A distribution records the active `sampling_phase` at construction.
-`Constant.of` and `Constant.array` are retained convenience constructors and
-delegate to the same concrete boundary as `constant`.
+Free and fluent forms construct structurally equal graphs. Arithmetic supports
+`+`, `-`, `*`, `/`, and `//`, including their reverse forms.
 
-`ValueMeta.dtype` is authoritative at that boundary:
+`constant` accepts supported Python and NumPy Boolean, integer, and floating
+values. Metadata is authoritative and storage is canonical:
 
 | Metadata | NumPy storage |
 | --- | --- |
@@ -61,37 +63,26 @@ delegate to the same concrete boundary as `constant`.
 | `DataType.INT` | `np.int64` |
 | `DataType.FLOAT` | `np.float64` |
 
-Supported scalar and NumPy Boolean, integer, and floating kinds are inferred
-when `dtype` is omitted. Complex, object, and string values are rejected.
-Non-scalar rank must match the number of named plates. Narrow support metadata
-is checked against the coerced value.
+Non-scalar rank must match the number of named plates. Complex, object, and
+string values are rejected.
 
-## Expression properties
+## Expression inspection
 
-```python
-expr.plates
-expr.plate_layout
-expr.pending_phases
-expr.has_value
-expr.dependencies
-```
-
-## Expression transforms
+Every `RandomVariable` exposes:
 
 ```python
-expr + other
-expr - other
-expr * other
-expr / other
-expr // other
-
-exp(expr)
-log(expr)
-softplus(expr)
-expr.abs()
+expr.dependencies     # immutable Mapping[str, RandomVariable]
+expr.plates           # canonical tuple[str, ...]
+expr.pending_phases   # frozenset[str]
+expr.has_value        # bool
+expr.value_meta       # ValueMeta
 ```
 
-## Plate methods
+Dependencies are name-sorted and preserve object aliasing in their values.
+Internal plate-layout and dependency-reconstruction objects are deliberately
+not part of the public contract.
+
+## Plates and reductions
 
 ```python
 expr.add_plates(*new, expect=None)
@@ -106,70 +97,92 @@ expr.prod(*plates)
 expr.logsumexp(*plates)
 ```
 
-The canonical objects are `reductions.MEAN`, `SUM`, `MAX`, `MIN`, `PROD`, and
-`LOGSUMEXP`. They are immutable singleton implementations; implementation
-classes and caller-defined reductions are not public v0.1 extension points.
+`add_plates` introduces independent replication. If `expect` is supplied, the
+existing plate set must match exactly before the new plates are added.
+`check_plates` validates without changing the graph. Reductions explicitly
+remove named plates.
 
-## Structural comparison
+The public immutable reduction objects are:
+
+```python
+reductions.MEAN
+reductions.SUM
+reductions.MAX
+reductions.MIN
+reductions.PROD
+reductions.LOGSUMEXP
+```
+
+Their common opaque type is `reductions.Reduction`. Caller-defined reductions
+are not a v0.1 extension point.
+
+## Phases and materialization
+
+```python
+with sampling_phase("latent"):
+    latent = Normal(0.0, 1.0)
+
+partial = latent.materialize(
+    phases=("latent",),
+    seed=10,
+    plate_sizes=None,
+)
+
+value = partial.realize(seed=11)
+```
+
+Phase names have no intrinsic order. Enabling a phase permanently clears that
+barrier in the returned immutable graph, but sampling still waits for concrete
+dependencies.
+
+`RandomVariable.materialize` returns an opaque, non-composable
+`SamplingCheckpoint`. A checkpoint exposes:
+
+```python
+checkpoint.pending_phases
+checkpoint.is_fully_materialized
+checkpoint.materialize(...)
+checkpoint.value()
+checkpoint.realize(...)
+checkpoint.structurally_equal(other)
+checkpoint.stochastically_equal(other)
+```
+
+`value()` succeeds only after the checkpoint root is concrete. `realize()`
+enables every remaining phase and returns a `ConcreteValue`.
+
+## Concrete values
+
+`ConcreteValue` contains an immutable, read-only NumPy array and exposes:
+
+```python
+value.data
+value.plates
+value.shape
+value.meta
+value.dtype
+value.support
+```
+
+The plate tuple is the canonical axis order of `data`.
+
+## Equality
 
 ```python
 expr == other
 expr.structurally_equal(other)
+checkpoint.stochastically_equal(other_checkpoint)
 ```
 
-Comparison checks computation structure while ignoring object aliasing and RNG
-resolution. It is not numerical closeness, algebraic equivalence, or
-probabilistic equality.
+Structural equality compares the represented computation while ignoring object
+aliasing and RNG resolution. It is not algebraic or probabilistic equality.
+Stochastic equality is available only after materialization and additionally
+checks graph-derived node entropy, sharing, fixed plate sizes, and bound
+sampling seeds.
 
-Nodes also implement an exact, node-owned dependency reconstruction contract:
+## Errors
 
-```python
-expr.rewrite_dependencies({"dependency_name": rewritten_expr, ...})
-```
-
-The mapping must contain every dependency exactly once. This method supports
-internal immutable graph rewrites; general custom-node support remains outside
-the v0.1 public extension contract.
-
-## Staged execution
-
-```python
-partial = expr.materialize(
-    phases=("latent",),
-    seed=10,
-    plate_sizes={"row": 4},
-)
-
-value = partial.realize(
-    seed=11,
-    plate_sizes={"row": 4},
-)
-
-completed = partial.materialize(seed=11)
-value = completed.value()
-```
-
-`materialize` returns an opaque, non-composable `SamplingCheckpoint`.
-`phases=None` enables every remaining named phase. Unphased distributions have
-no barrier and execute as soon as their dependencies are concrete.
-
-Only checkpoints expose `value()` and stochastic comparison because graph-aware
-node entropy is resolved as part of materialization:
-
-```python
-partial.stochastically_equal(other_partial)
-```
-
-This comparison first requires structural equality and then compares relevant
-plate sizes, remaining phase requirements, node entropy, and bound sampling
-seeds.
-
-When an enabled phase is blocked by another stochastic dependency, its sampling
-seed is still fixed during that materialization call. Clearing the dependency
-later does not silently replace it with the later call's seed.
-
-## Numeric execution
-
-v0.1 stores concrete values as NumPy arrays and samples through
-`numpy.random.Generator`. There is no public backend protocol in the current
-surface.
+Documented failures live under `stoch_ir.errors`. All public exceptions derive
+from `errors.StochIRError`. The curated hierarchy covers graph validation,
+plates, phases, materialization, concrete-value validation, and invalid
+distribution support.

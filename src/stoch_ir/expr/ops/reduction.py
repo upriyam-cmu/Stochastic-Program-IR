@@ -8,7 +8,9 @@ from ..meta import DataType, ValueMeta, ValueSupport
 
 
 @dataclass(frozen=True, slots=True)
-class ReductionImpl(ABC):
+class Reduction(ABC):
+    """Opaque reduction type used by the public singleton objects."""
+
     def _remap_dtype(self, child: DataType) -> DataType:
         # default: same as input
         return child
@@ -33,7 +35,7 @@ class ReductionImpl(ABC):
 
 
 @dataclass(frozen=True, slots=True)
-class MeanReduction(ReductionImpl):
+class _MeanReduction(Reduction):
     @override
     def _remap_dtype(self, child: DataType) -> DataType:
         return DataType.FLOAT
@@ -44,7 +46,7 @@ class MeanReduction(ReductionImpl):
 
 
 @dataclass(frozen=True, slots=True)
-class SumReduction(ReductionImpl):
+class _SumReduction(Reduction):
     @override
     def _remap_dtype(self, child: DataType) -> DataType:
         return max(child, DataType.INT)  # bool -> int
@@ -63,21 +65,21 @@ class SumReduction(ReductionImpl):
 
 
 @dataclass(frozen=True, slots=True)
-class MaxReduction(ReductionImpl):
+class _MaxReduction(Reduction):
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
         return np.max(child, axis=axes)
 
 
 @dataclass(frozen=True, slots=True)
-class MinReduction(ReductionImpl):
+class _MinReduction(Reduction):
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
         return np.min(child, axis=axes)
 
 
 @dataclass(frozen=True, slots=True)
-class ProductReduction(ReductionImpl):
+class _ProductReduction(Reduction):
     @override
     def _remap_support(self, child: ValueSupport) -> ValueSupport:
         return child if child != ValueSupport.NEGATIVE_BRANCH else ValueSupport.REAL
@@ -88,7 +90,7 @@ class ProductReduction(ReductionImpl):
 
 
 @dataclass(frozen=True, slots=True)
-class LogSumExpReduction(ReductionImpl):
+class _LogSumExpReduction(Reduction):
     @override
     def _remap_dtype(self, child: DataType) -> DataType:
         return DataType.FLOAT
@@ -106,9 +108,9 @@ class LogSumExpReduction(ReductionImpl):
         )
 
 
-MEAN = MeanReduction()
-SUM = SumReduction()
-MAX = MaxReduction()
-MIN = MinReduction()
-PROD = ProductReduction()
-LOGSUMEXP = LogSumExpReduction()
+MEAN = _MeanReduction()
+SUM = _SumReduction()
+MAX = _MaxReduction()
+MIN = _MinReduction()
+PROD = _ProductReduction()
+LOGSUMEXP = _LogSumExpReduction()

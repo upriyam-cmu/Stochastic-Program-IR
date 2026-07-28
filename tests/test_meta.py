@@ -5,9 +5,9 @@ import numpy as np
 
 from stoch_ir import constant
 from stoch_ir.errors import (
-    BackendError,
     DuplicatePlateError,
     UnknownPlateError,
+    ValueValidationError,
 )
 from stoch_ir.expr.meta import (
     EMPTY_PLATE_LAYOUT,
@@ -78,7 +78,7 @@ class ConcreteValueTests(unittest.TestCase):
     def test_wrap_rejects_rank_layout_mismatch(self) -> None:
         source = np.array([1.0, 2.0])
 
-        with self.assertRaises(BackendError):
+        with self.assertRaises(ValueValidationError):
             ConcreteValue.wrap(
                 source,
                 PlateLayout.wrap(()),
@@ -123,17 +123,17 @@ class ConcreteValueTests(unittest.TestCase):
         ]
         for value in values:
             with self.subTest(dtype=value.dtype):
-                with self.assertRaises(BackendError):
+                with self.assertRaises(ValueValidationError):
                     DataType.infer(value)
-                with self.assertRaises(BackendError):
+                with self.assertRaises(ValueValidationError):
                     DataType.FLOAT.coerce(value)
 
     def test_boolean_coercion_rejects_values_other_than_zero_or_one(self) -> None:
-        with self.assertRaises(BackendError):
+        with self.assertRaises(ValueValidationError):
             DataType.BOOL.coerce(np.array([0, 2]))
 
     def test_declared_support_is_checked_after_coercion(self) -> None:
-        with self.assertRaises(BackendError):
+        with self.assertRaises(ValueValidationError):
             ConcreteValue.wrap(
                 -1,
                 EMPTY_PLATE_LAYOUT,
@@ -171,11 +171,11 @@ class ConcreteValueTests(unittest.TestCase):
         self.assertEqual(explicit.realize().data.dtype, np.float64)
 
     def test_multidimensional_constant_requires_named_plates(self) -> None:
-        with self.assertRaises(BackendError):
+        with self.assertRaises(ValueValidationError):
             constant(np.ones((2, 2)))
 
     def test_constant_boundary_rejects_unsupported_kinds(self) -> None:
-        with self.assertRaises(BackendError):
+        with self.assertRaises(ValueValidationError):
             constant(np.array(["value"]))
 
     def test_concrete_equality_rejects_other_objects_and_detects_metadata(self) -> None:

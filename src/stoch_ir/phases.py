@@ -13,6 +13,20 @@ _CURRENT_SAMPLING_PHASE: ContextVar[Phase] = ContextVar(
 
 @contextmanager
 def sampling_phase(phase: str) -> Iterator[None]:
+    """Assign a sampling phase to distributions created in the context.
+
+    Parameters
+    ----------
+    phase
+        Non-empty phase name. Phase names are unordered; graph dependencies
+        determine when enabled distributions become ready.
+
+    Yields
+    ------
+    None
+        Control to the distribution-authoring block.
+    """
+
     if not isinstance(phase, str) or not phase:
         raise PhaseError("sampling phase names must be non-empty strings")
     token = _CURRENT_SAMPLING_PHASE.set(phase)
@@ -22,5 +36,8 @@ def sampling_phase(phase: str) -> Iterator[None]:
         _CURRENT_SAMPLING_PHASE.reset(token)
 
 
-def current_sampling_phase() -> Phase:
+def _current_sampling_phase() -> Phase:
     return _CURRENT_SAMPLING_PHASE.get()
+
+
+__all__ = ["sampling_phase"]

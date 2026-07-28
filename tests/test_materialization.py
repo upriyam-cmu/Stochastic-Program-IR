@@ -23,6 +23,7 @@ from stoch_ir.errors import (
 from stoch_ir.expr.hashing import (
     resolve_stochastic_hashes,
 )
+from stoch_ir.expr.nodes.distr import Gaussian, RandomDistributionNode
 from stoch_ir.rng import NodeEntropy
 
 
@@ -287,7 +288,7 @@ class MaterializationTests(unittest.TestCase):
             checkpoint.materialize(plate_sizes={"row": True})
 
     def test_deterministic_graph_is_evaluated_without_checkpoint(self) -> None:
-        source = Normal(0, 1)
+        source = cast(Gaussian, Normal(0, 1))
         deterministic = source.mu + source.mu
 
         value = deterministic.realize()
@@ -299,7 +300,7 @@ class MaterializationTests(unittest.TestCase):
             SamplingCheckpoint._wrap(Normal(0, 1), {})
 
     def test_entropy_cannot_be_replaced_or_seeded_too_early(self) -> None:
-        node = Normal(0, 1)
+        node = cast(RandomDistributionNode, Normal(0, 1))
         with self.assertRaises(UnresolvedRandomnessError):
             node.bind_sampling_seed(1)
         stamped = node.with_node_entropy(NodeEntropy(b"first"))

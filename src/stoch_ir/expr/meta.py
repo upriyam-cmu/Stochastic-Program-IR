@@ -8,7 +8,7 @@ from typing import Any, Final, TypeAlias
 
 import numpy as np
 
-from ..errors import BackendError, DuplicatePlateError, UnknownPlateError
+from ..errors import DuplicatePlateError, UnknownPlateError, ValueValidationError
 
 Plate: TypeAlias = str
 Phase: TypeAlias = str | None
@@ -18,12 +18,16 @@ PlateSizes: TypeAlias = Mapping[Plate, int]
 
 
 class ValueSupport(Enum):
+    """Conservative support metadata propagated through expressions."""
+
     POSITIVE_BRANCH = "[0, +inf)"
     NEGATIVE_BRANCH = "(-inf, 0]"
     UNIT_INTERVAL = "[0, 1]"
     REAL = "(-inf, +inf)"
 
     def contains(self, value: np.ndarray) -> bool:
+        """Return whether every value satisfies this support."""
+
         match self:
             case ValueSupport.POSITIVE_BRANCH:
                 return bool(np.all(0 <= value))
@@ -38,6 +42,8 @@ class ValueSupport(Enum):
 
 
 class DataType(IntEnum):
+    """Canonical concrete dtype families supported by v0.1."""
+
     # we can almost always resolve implicit conversions as
     # max(dtypes), excluding an unfortunate edge case where
     # sometimes we want to merge multiple bools into an int
@@ -47,6 +53,8 @@ class DataType(IntEnum):
 
     @property
     def numpy_dtype(self) -> np.dtype[Any]:
+        """Return the canonical NumPy dtype for this metadata member."""
+
         match self:
             case DataType.BOOL:
                 return np.dtype(np.bool_)
@@ -59,6 +67,8 @@ class DataType(IntEnum):
 
     @classmethod
     def infer(cls, value: Data) -> "DataType":
+        """Infer a supported dtype family from concrete data."""
+
         kind = np.asarray(value).dtype.kind
         if kind == "b":
             return cls.BOOL
@@ -66,29 +76,35 @@ class DataType(IntEnum):
             return cls.INT
         if kind == "f":
             return cls.FLOAT
-        raise BackendError(
+        raise ValueValidationError(
             f"unsupported concrete dtype {np.asarray(value).dtype}; "
             "expected boolean, integer, or floating data"
         )
 
     def coerce(self, value: Data) -> np.ndarray:
+        """Coerce concrete data into this dtype's canonical NumPy storage."""
+
         source = np.asarray(value)
         if source.dtype.kind not in ("b", "i", "u", "f"):
-            raise BackendError(
+            raise ValueValidationError(
                 f"cannot coerce unsupported dtype {source.dtype} to {self.name}"
             )
         if self is DataType.BOOL and not bool(np.all((source == 0) | (source == 1))):
-            raise BackendError("BOOL values must contain only 0 or 1")
+            raise ValueValidationError("BOOL values must contain only 0 or 1")
         return np.asarray(source, dtype=self.numpy_dtype)
 
 
 @dataclass(frozen=True, slots=True)
 class ValueMeta:
+    """Canonical dtype and conservative support for an expression value."""
+
     dtype: DataType
     support: ValueSupport
 
     @classmethod
     def from_value(cls, value: Data, dtype: DataType) -> "ValueMeta":
+        """Derive conservative metadata after canonical dtype coercion."""
+
         coerced = dtype.coerce(value)
         if dtype is DataType.BOOL:
             return ValueMeta(dtype=dtype, support=ValueSupport.UNIT_INTERVAL)
@@ -214,6 +230,18 @@ EMPTY_PLATE_LAYOUT: Final[PlateLayout] = PlateLayout.wrap(())
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ConcreteValue:
+    """Immutable NumPy value returned by realization.
+
+    Concrete storage is read-only and uses the canonical NumPy dtype declared
+    by :attr:`meta`. Named plates follow the same lexicographic order as the
+    corresponding array axes.
+
+    Notes
+    -----
+    Construct concrete values through :func:`stoch_ir.constant` or expression
+    realization rather than instantiating this class directly.
+    """
+
     data: np.ndarray
     layout: PlateLayout
     meta: ValueMeta
@@ -227,14 +255,14 @@ class ConcreteValue:
         owned.flags.writeable = False
         object.__setattr__(self, "data", owned)
         if self.data.ndim != len(self.layout.plates):
-            raise BackendError(
+            raise ValueValidationError(
                 f"data.ndim = {self.data.ndim} != len(plates) = {len(self.layout.plates)}"
             )
         if (
             self.meta.support is not ValueSupport.REAL
             and not self.meta.support.contains(self.data)
         ):
-            raise BackendError(
+            raise ValueValidationError(
                 f"concrete value does not satisfy declared support "
                 f"{self.meta.support.value}"
             )
@@ -250,4 +278,24 @@ class ConcreteValue:
 
     @property
     def shape(self) -> tuple[int, ...]:
+        """Return the concrete NumPy shape."""
+
         return self.data.shape
+
+    @property
+    def plates(self) -> tuple[Plate, ...]:
+        """Return plate names in the canonical axis order."""
+
+        return self.layout.plates
+
+    @property
+    def dtype(self) -> DataType:
+        """Return the canonical dtype metadata."""
+
+        return self.meta.dtype
+
+    @property
+    def support(self) -> ValueSupport:
+        """Return the conservative support metadata."""
+
+        return self.meta.support

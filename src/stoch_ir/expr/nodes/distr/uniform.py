@@ -5,7 +5,7 @@ import numpy as np
 from typing_extensions import Self, override
 
 from ....errors import InvalidSupportError
-from ....phases import current_sampling_phase
+from ....phases import _current_sampling_phase
 from ....rng import RngLabel
 from ...meta import (
     ConcreteValue,
@@ -122,18 +122,33 @@ class UniformDistribution(RandomDistributionNode):
         return np.asarray(rng.uniform(low=low_data, high=high_data))
 
 
-def uniform(
-    low: ExprInput = 0.0,
-    high: ExprInput = 1.0,
+def Uniform(
+    low: RandomVariable | bool | int | float = 0.0,
+    high: RandomVariable | bool | int | float = 1.0,
     *,
     rng_label: RngLabel | None = None,
-) -> UniformDistribution:
+) -> RandomVariable:
+    """Create an elementwise continuous uniform random variable.
+
+    Parameters
+    ----------
+    low
+        Symbolic or scalar lower bound.
+    high
+        Symbolic or scalar upper bound. It must be strictly greater than
+        ``low`` when sampled.
+    rng_label
+        Optional semantic label mixed into graph-derived node entropy.
+
+    Returns
+    -------
+    RandomVariable
+        A symbolic uniform draw with the union of bound plates.
+    """
+
     return UniformDistribution.wrap(
         low,
         high,
         rng_label=rng_label,
-        phase_requirement=current_sampling_phase(),
+        phase_requirement=_current_sampling_phase(),
     )
-
-
-Uniform = uniform

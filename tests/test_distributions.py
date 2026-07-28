@@ -68,7 +68,9 @@ def test_uniform_rejects_invalid_elementwise_bounds(low: int, high: int) -> None
 
 def test_uniform_rewrites_symbolic_dependencies() -> None:
     expr = Uniform(0, 1)
-    rewritten = expr.rewrite_dependencies({"high": constant(4), "low": constant(2)})
+    rewritten = expr._rewrite_dependencies_exact(
+        {"high": constant(4), "low": constant(2)}
+    )
 
     assert rewritten.structurally_equal(Uniform(2, 4))
 
@@ -114,7 +116,7 @@ def test_bernoulli_rejects_invalid_probabilities(p: float) -> None:
 
 def test_bernoulli_rewrites_symbolic_dependency() -> None:
     expr = Bernoulli(0.2)
-    rewritten = expr.rewrite_dependencies({"p": constant(0.8)})
+    rewritten = expr._rewrite_dependencies_exact({"p": constant(0.8)})
 
     assert rewritten.structurally_equal(Bernoulli(0.8))
 

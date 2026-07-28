@@ -1,15 +1,21 @@
-from .expr.nodes.base import ExprInput, RandomVariable, as_random_variable
+from .expr.nodes.base import RandomVariable, as_random_variable
 
 
-def exp(expr: ExprInput) -> RandomVariable:
+def exp(expr: RandomVariable | bool | int | float) -> RandomVariable:
+    """Apply the elementwise exponential transform."""
+
     return as_random_variable(expr).exp()
 
 
-def log(expr: ExprInput) -> RandomVariable:
+def log(expr: RandomVariable | bool | int | float) -> RandomVariable:
+    """Apply the elementwise natural logarithm transform."""
+
     return as_random_variable(expr).log()
 
 
-def softplus(expr: ExprInput) -> RandomVariable:
+def softplus(expr: RandomVariable | bool | int | float) -> RandomVariable:
+    """Apply the elementwise softplus transform."""
+
     return as_random_variable(expr).softplus()
 
 

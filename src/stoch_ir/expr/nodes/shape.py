@@ -5,7 +5,7 @@ import numpy as np
 from typing_extensions import Self, override
 
 from ...errors import MissingPlateSizeError
-from ..meta import ConcreteValue, Phase, PlateLayout, PlateSizes, ValueMeta
+from ..meta import ConcreteValue, PlateLayout, PlateSizes, ValueMeta
 from .base import Dependency, RandomVariable, rv_impl
 
 
@@ -69,7 +69,7 @@ class AddPlatesNode(RandomVariable):
         return self.arg.plate_layout + self.added_plates
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return self.arg.pending_phases
 
     @override

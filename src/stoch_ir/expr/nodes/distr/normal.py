@@ -5,7 +5,7 @@ import numpy as np
 from typing_extensions import Self, override
 
 from ....errors import InvalidSupportError
-from ....phases import current_sampling_phase
+from ....phases import _current_sampling_phase
 from ....rng import RngLabel
 from ...meta import (
     ConcreteValue,
@@ -115,18 +115,32 @@ class Gaussian(RandomDistributionNode):
         return np.asarray(rng.normal(loc=mu_data, scale=sigma_data))
 
 
-def normal(
-    mu: ExprInput,
-    sigma: ExprInput,
+def Normal(
+    mu: RandomVariable | bool | int | float,
+    sigma: RandomVariable | bool | int | float,
     *,
     rng_label: RngLabel | None = None,
-) -> Gaussian:
+) -> RandomVariable:
+    """Create a univariate normal random variable.
+
+    Parameters
+    ----------
+    mu
+        Symbolic or scalar location.
+    sigma
+        Symbolic or scalar strictly positive scale.
+    rng_label
+        Optional semantic label mixed into graph-derived node entropy.
+
+    Returns
+    -------
+    RandomVariable
+        A symbolic normal draw with the union of parameter plates.
+    """
+
     return Gaussian.wrap(
         mu,
         sigma,
         rng_label=rng_label,
-        phase_requirement=current_sampling_phase(),
+        phase_requirement=_current_sampling_phase(),
     )
-
-
-Normal = normal

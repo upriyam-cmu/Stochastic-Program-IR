@@ -3,7 +3,7 @@
 This document explains the two least obvious v0.1 mechanisms: stochastic-only
 graph hashing and immutable partial materialization. It is descriptive of the
 current implementation; the normative product contract remains
-[`specs/specification-v0.1.md`](../specs/specification-v0.1.md).
+`specs/specification-v0.1.md` in the source repository.
 
 ## 1. Responsibilities
 
@@ -11,8 +11,9 @@ The components have deliberately narrow roles:
 
 | Component | Responsibility |
 | --- | --- |
-| `RandomVariable.dependencies` | Return a complete, name-sorted dependency tuple |
-| `rewrite_dependencies(mapping)` | Rebuild the same node type with exactly those rewritten dependencies |
+| `RandomVariable.dependencies` | Expose an immutable, name-sorted mapping for inspection |
+| private dependency slots | Preserve canonical names and use multiplicity for internal passes |
+| private exact rewrite hook | Rebuild the same node type with every rewritten dependency |
 | `StochasticProjection` | Contract deterministic nodes into a multigraph between distribution nodes |
 | `ResolvedGraphHashes` | Record auditable dependency, consumer, enumeration, and final hashes |
 | `NodeEntropy` | Mix one final graph hash with the optional user label |
@@ -186,15 +187,16 @@ changing randomness that was fixed when the phase was enabled.
 ## 7. Immutable dependency rewriting
 
 Materialization must reconstruct arbitrary node types without assuming that a
-dependency name is also a dataclass field name. Every node therefore owns:
+dependency name is also a dataclass field name. Every node therefore owns an
+internal exact reconstruction contract:
 
 ```python
-node.rewrite_dependencies(
+node._rewrite_dependencies_exact(
     {"dependency_name": rewritten_dependency, ...}
 )
 ```
 
-The public wrapper validates that:
+The internal wrapper validates that:
 
 - the mapping contains every existing dependency exactly once;
 - every replacement is a `RandomVariable`;
@@ -202,8 +204,8 @@ The public wrapper validates that:
 - the rewritten node exposes the same dependency slots.
 
 The protected node hook decides how its constructor fields correspond to those
-slots. This canonicalizes the current built-in rewrite pass without yet
-promising general custom-node execution support.
+slots. Public `dependencies` remains read-only inspection metadata; custom-node
+execution is not a v0.1 extension point.
 
 ## 8. Concrete folding and checkpoints
 

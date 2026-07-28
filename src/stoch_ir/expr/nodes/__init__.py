@@ -14,9 +14,6 @@ from .distr import (
     RandomDistributionNode,
     Uniform,
     UniformDistribution,
-    bernoulli,
-    normal,
-    uniform,
 )
 from .ops import BinOpNode, ReductionOpNode, UnaryOpNode
 from .shape import AddPlatesNode
@@ -38,8 +35,5 @@ __all__ = [
     "Uniform",
     "UniformDistribution",
     "as_random_variable",
-    "bernoulli",
     "constant",
-    "normal",
-    "uniform",
 ]

@@ -55,7 +55,7 @@ def _all_nodes(root: RandomVariable) -> tuple[RandomVariable, ...]:
             return
         seen.add(id(node))
         nodes.append(node)
-        for dependency in node.dependencies:
+        for dependency in node._dependency_slots:
             visit(dependency.var)
 
     visit(root)
@@ -149,13 +149,13 @@ def _concrete_dependencies(
     plate_sizes: PlateSizes,
 ) -> Mapping[str, ConcreteValue] | None:
     if not all(
-        isinstance(dependency.var, Constant) for dependency in node.dependencies
+        isinstance(dependency.var, Constant) for dependency in node._dependency_slots
     ):
         return None
     return MappingProxyType(
         {
             dependency.name: _constant_value(dependency.var, plate_sizes)
-            for dependency in node.dependencies
+            for dependency in node._dependency_slots
             if isinstance(dependency.var, Constant)
         }
     )
@@ -180,7 +180,7 @@ def _evaluate_deterministic_tree(
         dependencies = MappingProxyType(
             {
                 dependency.name: evaluate(dependency.var)
-                for dependency in node.dependencies
+                for dependency in node._dependency_slots
             }
         )
         value = node._evaluate_concrete(dependencies, plate_sizes)
@@ -248,9 +248,9 @@ def _materialize_node(
                 enabled_phases=enabled_phases,
                 memo=memo,
             )
-            for dependency in node.dependencies
+            for dependency in node._dependency_slots
         }
-        rebuilt = node.rewrite_dependencies(dependency_changes)
+        rebuilt = node._rewrite_dependencies_exact(dependency_changes)
         if not isinstance(rebuilt, RandomDistributionNode):
             raise TypeError("distribution rewrite changed the node category")
 
@@ -305,9 +305,9 @@ def _materialize_node(
             lifted_layout=lifted_layout,
             memo=memo,
         )
-        for dependency in node.dependencies
+        for dependency in node._dependency_slots
     }
-    rebuilt = node.rewrite_dependencies(dependency_changes)
+    rebuilt = node._rewrite_dependencies_exact(dependency_changes)
     dependencies = _concrete_dependencies(rebuilt, plate_sizes)
     result = (
         Constant(rebuilt._evaluate_concrete(dependencies, plate_sizes))
@@ -366,11 +366,11 @@ def _stochastically_equal(
                 or lhs._sampling_seed != rhs._sampling_seed
             ):
                 return False
-        if len(lhs.dependencies) != len(rhs.dependencies):
+        if len(lhs._dependency_slots) != len(rhs._dependency_slots):
             return False
         for lhs_dep, rhs_dep in zip(
-            lhs.dependencies,
-            rhs.dependencies,
+            lhs._dependency_slots,
+            rhs._dependency_slots,
             strict=True,
         ):
             if lhs_dep.name != rhs_dep.name:
@@ -381,7 +381,12 @@ def _stochastically_equal(
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SamplingCheckpoint:
-    """Opaque, immutable graph with resolved stochastic node entropy."""
+    """Opaque, immutable partially materialized stochastic graph.
+
+    Checkpoints fix graph-derived node entropy, resolved plate sizes, and any
+    values sampled so far. They cannot participate in new expressions; call
+    :meth:`materialize`, :meth:`realize`, or :meth:`value` to continue.
+    """
 
     _root: RandomVariable
     _plate_sizes: Mapping[Plate, int]
@@ -400,19 +405,27 @@ class SamplingCheckpoint:
         _ensure_resolved(self._root)
 
     @property
-    def pending_phases(self) -> frozenset[Phase]:
+    def pending_phases(self) -> frozenset[str]:
+        """Return named sampling phases still present in the checkpoint."""
+
         return self._root.pending_phases
 
     @property
     def is_fully_materialized(self) -> bool:
+        """Whether the checkpoint has collapsed to one concrete constant."""
+
         return isinstance(self._root, Constant)
 
     def structurally_equal(self, other: "SamplingCheckpoint") -> bool:
+        """Compare rewritten computation structure, ignoring resolved RNG data."""
+
         return isinstance(other, SamplingCheckpoint) and self._root.structurally_equal(
             other._root
         )
 
     def stochastically_equal(self, other: "SamplingCheckpoint") -> bool:
+        """Compare structure, stochastic sharing, and resolved RNG state."""
+
         return (
             isinstance(other, SamplingCheckpoint)
             and self._plate_sizes == other._plate_sizes
@@ -424,8 +437,10 @@ class SamplingCheckpoint:
         *,
         seed: Seed | None = None,
         plate_sizes: PlateSizes | None = None,
-        phases: Iterable[Phase] | None = None,
+        phases: Iterable[str] | None = None,
     ) -> "SamplingCheckpoint":
+        """Enable selected phases and return a new immutable checkpoint."""
+
         sizes = _checkpoint_plate_sizes(self._plate_sizes, plate_sizes)
         rewritten = _materialize_resolved(
             self._root,
@@ -436,6 +451,8 @@ class SamplingCheckpoint:
         return SamplingCheckpoint._wrap(rewritten, sizes)
 
     def value(self) -> ConcreteValue:
+        """Return concrete data or raise if stochastic nodes remain."""
+
         if not isinstance(self._root, Constant):
             raise UnrealizedGraphError(
                 "checkpoint still contains unrealized stochastic nodes"
@@ -448,6 +465,8 @@ class SamplingCheckpoint:
         seed: Seed | None = None,
         plate_sizes: PlateSizes | None = None,
     ) -> ConcreteValue:
+        """Materialize every remaining phase and return concrete data."""
+
         return self.materialize(
             seed=seed,
             plate_sizes=plate_sizes,
@@ -460,7 +479,7 @@ def materialize(
     *,
     seed: Seed | None = None,
     plate_sizes: PlateSizes | None = None,
-    phases: Iterable[Phase] | None = None,
+    phases: Iterable[str] | None = None,
 ) -> SamplingCheckpoint:
     sizes = _normalize_plate_sizes(root, plate_sizes)
     hashes = resolve_stochastic_hashes(root)

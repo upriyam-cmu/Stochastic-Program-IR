@@ -22,6 +22,12 @@ from stoch_ir.examples.hierarchical_gaussian import (
 from stoch_ir.examples.hierarchical_gaussian import (
     run as run_gaussian,
 )
+from stoch_ir.examples.matrix_product import (
+    build_model as build_matrix_product,
+)
+from stoch_ir.examples.matrix_product import (
+    run as run_matrix_product,
+)
 
 
 def test_hierarchical_row_column_gaussian_example() -> None:
@@ -100,6 +106,16 @@ def test_named_numpy_constants_feed_stochastic_graph() -> None:
     assert value.data.shape == (2, 8)
 
 
+def test_named_plate_matrix_product_uses_explicit_contraction() -> None:
+    model = build_matrix_product()
+    value = run_matrix_product(seed=3)
+
+    assert model.plates == ("col", "row")
+    assert value.plates == ("col", "row")
+    assert value.shape == (4, 2)
+    assert np.all(np.isfinite(value.data))
+
+
 def test_example_modules_are_directly_executable(capsys) -> None:
     sys.modules.pop(
         "stoch_ir.examples.hierarchical_gaussian",
@@ -109,12 +125,20 @@ def test_example_modules_are_directly_executable(capsys) -> None:
         "stoch_ir.examples.bernoulli_trials",
         None,
     )
+    sys.modules.pop(
+        "stoch_ir.examples.matrix_product",
+        None,
+    )
     runpy.run_module(
         "stoch_ir.examples.hierarchical_gaussian",
         run_name="__main__",
     )
     runpy.run_module(
         "stoch_ir.examples.bernoulli_trials",
+        run_name="__main__",
+    )
+    runpy.run_module(
+        "stoch_ir.examples.matrix_product",
         run_name="__main__",
     )
 

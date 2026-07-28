@@ -122,7 +122,7 @@ Required work:
 - an opaque, non-composable `SamplingCheckpoint`;
 - monotonic phase-barrier removal;
 - dependency-blocked enabled nodes that resume on a later pass;
-- node-owned exact dependency rewriting through `rewrite_dependencies`;
+- node-owned exact dependency rewriting through a private reconstruction hook;
 - distribution-to-constant replacement;
 - eager constant folding for deterministic downstream nodes;
 - unchanged subgraph sharing;

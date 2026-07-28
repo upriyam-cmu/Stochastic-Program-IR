@@ -5,7 +5,7 @@ import numpy as np
 from typing_extensions import Self, override
 
 from ....errors import InvalidSupportError
-from ....phases import current_sampling_phase
+from ....phases import _current_sampling_phase
 from ....rng import RngLabel
 from ...meta import (
     ConcreteValue,
@@ -91,16 +91,29 @@ class BernoulliDistribution(RandomDistributionNode):
         return np.asarray(rng.binomial(1, probability_data), dtype=np.bool_)
 
 
-def bernoulli(
-    p: ExprInput,
+def Bernoulli(
+    p: RandomVariable | bool | int | float,
     *,
     rng_label: RngLabel | None = None,
-) -> BernoulliDistribution:
+) -> RandomVariable:
+    """Create an elementwise Bernoulli random variable.
+
+    Parameters
+    ----------
+    p
+        Symbolic or scalar success probability in the closed interval
+        ``[0, 1]``.
+    rng_label
+        Optional semantic label mixed into graph-derived node entropy.
+
+    Returns
+    -------
+    RandomVariable
+        A symbolic Boolean draw with the probability's plates.
+    """
+
     return BernoulliDistribution.wrap(
         p,
         rng_label=rng_label,
-        phase_requirement=current_sampling_phase(),
+        phase_requirement=_current_sampling_phase(),
     )
-
-
-Bernoulli = bernoulli

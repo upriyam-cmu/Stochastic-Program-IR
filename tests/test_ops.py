@@ -4,9 +4,7 @@ from typing import Any, cast
 import numpy as np
 
 from stoch_ir import (
-    Constant,
     DataType,
-    PlateLayout,
     ValueSupport,
     constant,
     exp,
@@ -24,6 +22,7 @@ from stoch_ir.errors import (
     UnknownPlateError,
 )
 from stoch_ir.expr.nodes.base import (
+    Constant,
     Dependency,
     as_random_variable,
 )
@@ -33,6 +32,7 @@ from stoch_ir.expr.nodes.ops import (
     UnaryOpNode,
 )
 from stoch_ir.expr.nodes.shape import add_plates
+from stoch_ir.expr.meta import PlateLayout
 from stoch_ir.expr.ops.binary_op import FloorDivideOp
 
 
@@ -48,7 +48,7 @@ class PlateAwareOperatorTests(unittest.TestCase):
 
     def test_dependency_rewrite_requires_the_complete_named_mapping(self) -> None:
         expr = Constant.of(1, DataType.INT) + Constant.of(2, DataType.INT)
-        rewritten = expr.rewrite_dependencies(
+        rewritten = expr._rewrite_dependencies_exact(
             {
                 "lhs": Constant.of(3, DataType.INT),
                 "rhs": Constant.of(4, DataType.INT),
@@ -57,9 +57,9 @@ class PlateAwareOperatorTests(unittest.TestCase):
 
         self.assertEqual(rewritten.realize().data, 7)
         with self.assertRaises(DependencyRewriteError):
-            expr.rewrite_dependencies({"lhs": Constant.of(3, DataType.INT)})
+            expr._rewrite_dependencies_exact({"lhs": Constant.of(3, DataType.INT)})
         with self.assertRaises(DependencyRewriteError):
-            expr.rewrite_dependencies(
+            expr._rewrite_dependencies_exact(
                 cast(
                     Any,
                     {
@@ -119,7 +119,7 @@ class PlateAwareOperatorTests(unittest.TestCase):
         self.assertIs(scalar.reduce_plates(reduction=reductions.SUM), scalar)
         self.assertIs(scalar.check_plates(), scalar)
         self.assertEqual(plated.check_plates("row"), plated)
-        self.assertEqual(plated.plates, frozenset({"row"}))
+        self.assertEqual(plated.plates, ("row",))
         with self.assertRaises(PlateExpectationError):
             plated.check_plates("col")
         with self.assertRaises(PlateExpectationError):
@@ -197,6 +197,7 @@ class PlateAwareOperatorTests(unittest.TestCase):
             (lambda x: log(x), np.log(2.0)),
             (lambda x: x.log(), np.log(2.0)),
             (lambda x: x.abs(), 2.0),
+            (lambda x: abs(x), 2.0),
         ]
         for factory, expected in cases:
             with self.subTest(expected=expected):

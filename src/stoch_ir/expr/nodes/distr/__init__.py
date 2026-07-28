@@ -1,7 +1,7 @@
 from .base import RandomDistributionNode
-from .bernoulli import Bernoulli, BernoulliDistribution, bernoulli
-from .normal import Gaussian, Normal, normal
-from .uniform import Uniform, UniformDistribution, uniform
+from .bernoulli import Bernoulli, BernoulliDistribution
+from .normal import Gaussian, Normal
+from .uniform import Uniform, UniformDistribution
 
 __all__ = [
     "Bernoulli",
@@ -11,7 +11,4 @@ __all__ = [
     "RandomDistributionNode",
     "Uniform",
     "UniformDistribution",
-    "bernoulli",
-    "normal",
-    "uniform",
 ]

@@ -78,7 +78,7 @@ def stochastic_frontier(
         return (expr,)
     return tuple(
         node
-        for dependency in expr.dependencies
+        for dependency in expr._dependency_slots
         for node in stochastic_frontier(dependency.var)
     )
 
@@ -109,12 +109,12 @@ class StochasticProjection:
                 seen.add(identity)
                 nodes.append(expr)
                 active.add(identity)
-                for dependency in expr.dependencies:
+                for dependency in expr._dependency_slots:
                     visit_expression(dependency.var)
                 active.remove(identity)
                 return
             active.add(identity)
-            for dependency in expr.dependencies:
+            for dependency in expr._dependency_slots:
                 visit_expression(dependency.var)
             active.remove(identity)
 
@@ -122,7 +122,7 @@ class StochasticProjection:
 
         edges: list[StochasticInputEdge] = []
         for consumer in nodes:
-            for dependency in consumer.dependencies:
+            for dependency in consumer._dependency_slots:
                 for ordinal, source in enumerate(stochastic_frontier(dependency.var)):
                     edges.append(
                         StochasticInputEdge(
@@ -145,13 +145,13 @@ class StochasticProjection:
 
     def dependencies_of(
         self,
-        node: RandomDistributionNode,
+        node: RandomVariable,
     ) -> tuple[StochasticInputEdge, ...]:
         return tuple(edge for edge in self.edges if edge.consumer is node)
 
     def consumers_of(
         self,
-        node: RandomDistributionNode,
+        node: RandomVariable,
     ) -> tuple[StochasticInputEdge, ...]:
         return tuple(edge for edge in self.edges if edge.source is node)
 
@@ -180,10 +180,12 @@ class ResolvedGraphHashes:
     projection: StochasticProjection
     _parts_by_identity: Mapping[int, NodeHashParts]
 
-    def for_node(self, node: RandomDistributionNode) -> NodeHashParts:
+    def for_node(self, node: RandomVariable) -> NodeHashParts:
         return self._parts_by_identity[id(node)]
 
-    def node_entropy_for(self, node: RandomDistributionNode) -> NodeEntropy:
+    def node_entropy_for(self, node: RandomVariable) -> NodeEntropy:
+        if not isinstance(node, RandomDistributionNode):
+            raise TypeError("node entropy is defined only for distributions")
         return derive_node_entropy(
             self.for_node(node).final,
             node.rng_label,
@@ -284,9 +286,10 @@ def stamp_node_entropies(
         if identity in memo:
             return memo[identity]
         rewritten_dependencies = {
-            dependency.name: rewrite(dependency.var) for dependency in node.dependencies
+            dependency.name: rewrite(dependency.var)
+            for dependency in node._dependency_slots
         }
-        rewritten = node.rewrite_dependencies(rewritten_dependencies)
+        rewritten = node._rewrite_dependencies_exact(rewritten_dependencies)
         if isinstance(node, RandomDistributionNode):
             if not isinstance(rewritten, RandomDistributionNode):
                 raise TypeError("distribution rewrite changed the node category")

@@ -26,14 +26,13 @@ from ..meta import (
     ConcreteValue,
     Data,
     DataType,
-    Phase,
     Plate,
     PlateLayout,
     PlateSizes,
     Scalar,
     ValueMeta,
 )
-from ..ops import BinOpImpl, ReductionImpl, UnaryOpImpl
+from ..ops import BinOpImpl, Reduction, UnaryOpImpl
 from ..ops.binary_op import AddOp, FloorDivideOp, MultiplyOp, SubtractOp, TrueDivideOp
 from ..ops.reduction import (
     LOGSUMEXP,
@@ -99,11 +98,23 @@ def rv_impl(
 
 @rv_impl
 class RandomVariable(ABC):
+    """Immutable symbolic random-variable expression.
+
+    Random variables form a directed acyclic graph. Deterministic operations
+    return new expressions, while distributions remain symbolic until
+    :meth:`materialize` or :meth:`realize` is called.
+
+    Notes
+    -----
+    This class is a public inspection and authoring type, not a supported v0.1
+    subclassing interface.
+    """
+
     def __post_init__(self) -> None:
         # Resolve cached structural metadata eagerly so invalid support,
         # dependency, or plate interactions fail at node construction rather
         # than during a later materialization pass.
-        _ = self.dependencies
+        _ = self._dependency_slots
         _ = self.plate_layout
         _ = self.pending_phases
         _ = self.has_value
@@ -113,9 +124,7 @@ class RandomVariable(ABC):
     def _compute_dependencies(self) -> tuple[Dependency, ...]: ...
 
     @cached_property
-    def dependencies(self) -> tuple[Dependency, ...]:
-        """Return the node's complete dependency slots in canonical name order."""
-
+    def _dependency_slots(self) -> tuple[Dependency, ...]:
         dependencies = self._compute_dependencies()
         names = tuple(dependency.name for dependency in dependencies)
         if any(not name for name in names):
@@ -128,23 +137,27 @@ class RandomVariable(ABC):
             )
         return tuple(sorted(dependencies, key=lambda dependency: dependency.name))
 
+    @cached_property
+    def dependencies(self) -> Mapping[str, "RandomVariable"]:
+        """Return an immutable, name-sorted mapping of direct dependencies."""
+
+        return MappingProxyType(
+            {dependency.name: dependency.var for dependency in self._dependency_slots}
+        )
+
     @abstractmethod
     def _rewrite_dependencies(
         self,
         dependencies: Mapping[str, "RandomVariable"],
     ) -> Self: ...
 
-    def rewrite_dependencies(
+    def _rewrite_dependencies_exact(
         self,
         dependencies: Mapping[str, "RandomVariable"],
     ) -> Self:
-        """Rebuild this node with one replacement for every dependency slot.
+        """Internal exact reconstruction hook used by immutable graph passes."""
 
-        The public wrapper owns the generic rewrite contract; subclasses only
-        map the validated dependency names back to their constructor fields.
-        """
-
-        expected_names = tuple(dependency.name for dependency in self.dependencies)
+        expected_names = tuple(dependency.name for dependency in self._dependency_slots)
         supplied_names = tuple(sorted(dependencies))
         if supplied_names != expected_names:
             raise DependencyRewriteError(
@@ -166,7 +179,7 @@ class RandomVariable(ABC):
                 f"{type(rewritten).__name__}"
             )
         rewritten_names = tuple(
-            dependency.name for dependency in rewritten.dependencies
+            dependency.name for dependency in rewritten._dependency_slots
         )
         if rewritten_names != expected_names:
             raise DependencyRewriteError(
@@ -182,25 +195,34 @@ class RandomVariable(ABC):
         return self._compute_plate_layout()
 
     @property
-    def plates(self) -> frozenset[Plate]:
-        return self.plate_layout.as_set
+    def plates(self) -> tuple[Plate, ...]:
+        """Return named plates in canonical lexicographic order."""
+
+        return self.plate_layout.plates
 
     @abstractmethod
-    def _compute_pending_phases(self) -> frozenset[Phase]: ...
+    def _compute_pending_phases(self) -> frozenset[str]: ...
+
     @cached_property
-    def pending_phases(self) -> frozenset[Phase]:
+    def pending_phases(self) -> frozenset[str]:
+        """Return named sampling phases still present in this graph."""
+
         return self._compute_pending_phases()
 
     @abstractmethod
     def _compute_has_value(self) -> bool: ...
     @cached_property
     def has_value(self) -> bool:
+        """Whether the graph is deterministic and directly realizable."""
+
         return self._compute_has_value()
 
     @abstractmethod
     def _compute_value_meta(self) -> ValueMeta: ...
     @cached_property
     def value_meta(self) -> ValueMeta:
+        """Return the expression's inferred dtype and support metadata."""
+
         return self._compute_value_meta()
 
     @abstractmethod
@@ -217,6 +239,22 @@ class RandomVariable(ABC):
         *plates: Plate,
         expect: Iterable[Plate] | None = None,
     ) -> "RandomVariable":
+        """Introduce independent replication over new named plates.
+
+        Parameters
+        ----------
+        *plates
+            New plate names. Every name must be unique and absent from the
+            expression.
+        expect
+            Optional exact precondition for the expression's existing plates.
+
+        Returns
+        -------
+        RandomVariable
+            A new expression with the requested plates.
+        """
+
         if expect is not None:
             self.check_plates(*expect)
 
@@ -225,6 +263,8 @@ class RandomVariable(ABC):
         return AddPlatesNode(self, PlateLayout.wrap(plates)) if plates else self
 
     def check_plates(self, *plates: Plate) -> "RandomVariable":
+        """Validate the complete current plate set and return this expression."""
+
         expected = PlateLayout.wrap(plates)
         if self.plate_layout != expected:
             raise PlateExpectationError(
@@ -235,8 +275,10 @@ class RandomVariable(ABC):
     def reduce_plates(
         self,
         *plates: Plate,
-        reduction: ReductionImpl,
+        reduction: Reduction,
     ) -> "RandomVariable":
+        """Reduce named plates with a canonical reduction object."""
+
         from .ops import ReductionOpNode
 
         return (
@@ -246,41 +288,66 @@ class RandomVariable(ABC):
         )
 
     def mean(self, *plates: Plate) -> "RandomVariable":
+        """Return the arithmetic mean over named plates."""
+
         return self.reduce_plates(*plates, reduction=MEAN)
 
     def sum(self, *plates: Plate) -> "RandomVariable":
+        """Return the sum over named plates."""
+
         return self.reduce_plates(*plates, reduction=SUM)
 
     def max(self, *plates: Plate) -> "RandomVariable":
+        """Return the maximum over named plates."""
+
         return self.reduce_plates(*plates, reduction=MAX)
 
     def min(self, *plates: Plate) -> "RandomVariable":
+        """Return the minimum over named plates."""
+
         return self.reduce_plates(*plates, reduction=MIN)
 
     def prod(self, *plates: Plate) -> "RandomVariable":
+        """Return the product over named plates."""
+
         return self.reduce_plates(*plates, reduction=PROD)
 
     def logsumexp(self, *plates: Plate) -> "RandomVariable":
+        """Return a stable log-sum-exp over named plates."""
+
         return self.reduce_plates(*plates, reduction=LOGSUMEXP)
 
-    def apply_unary_op(self, op: UnaryOpImpl) -> "RandomVariable":
+    def _apply_unary_op(self, op: UnaryOpImpl) -> "RandomVariable":
         from .ops import UnaryOpNode
 
         return UnaryOpNode(op, self)
 
     def exp(self) -> "RandomVariable":
-        return self.apply_unary_op(ExpOp())
+        """Apply the elementwise exponential transform."""
+
+        return self._apply_unary_op(ExpOp())
 
     def log(self) -> "RandomVariable":
-        return self.apply_unary_op(LogOp())
+        """Apply the elementwise natural logarithm transform."""
+
+        return self._apply_unary_op(LogOp())
 
     def softplus(self) -> "RandomVariable":
-        return self.apply_unary_op(SoftplusOp())
+        """Apply the elementwise softplus transform."""
+
+        return self._apply_unary_op(SoftplusOp())
 
     def abs(self) -> "RandomVariable":
-        return self.apply_unary_op(AbsOp())
+        """Apply the elementwise absolute-value transform."""
 
-    def apply_binary_op(
+        return self._apply_unary_op(AbsOp())
+
+    def __abs__(self) -> "RandomVariable":
+        """Return ``self.abs()``."""
+
+        return self.abs()
+
+    def _apply_binary_op(
         self,
         other: "RandomVariable",
         op: BinOpImpl,
@@ -290,42 +357,55 @@ class RandomVariable(ABC):
         return BinOpNode(op, self, other)
 
     def __add__(self, other: "ExprInput") -> "RandomVariable":
-        return self.apply_binary_op(as_random_variable(other), AddOp())
+        return self._apply_binary_op(as_random_variable(other), AddOp())
 
     def __radd__(self, other: "ExprInput") -> "RandomVariable":
-        return as_random_variable(other).apply_binary_op(self, AddOp())
+        return as_random_variable(other)._apply_binary_op(self, AddOp())
 
     def __sub__(self, other: "ExprInput") -> "RandomVariable":
-        return self.apply_binary_op(as_random_variable(other), SubtractOp())
+        return self._apply_binary_op(as_random_variable(other), SubtractOp())
 
     def __rsub__(self, other: "ExprInput") -> "RandomVariable":
-        return as_random_variable(other).apply_binary_op(self, SubtractOp())
+        return as_random_variable(other)._apply_binary_op(self, SubtractOp())
 
     def __mul__(self, other: "ExprInput") -> "RandomVariable":
-        return self.apply_binary_op(as_random_variable(other), MultiplyOp())
+        return self._apply_binary_op(as_random_variable(other), MultiplyOp())
 
     def __rmul__(self, other: "ExprInput") -> "RandomVariable":
-        return as_random_variable(other).apply_binary_op(self, MultiplyOp())
+        return as_random_variable(other)._apply_binary_op(self, MultiplyOp())
 
     def __truediv__(self, other: "ExprInput") -> "RandomVariable":
-        return self.apply_binary_op(as_random_variable(other), TrueDivideOp())
+        return self._apply_binary_op(as_random_variable(other), TrueDivideOp())
 
     def __rtruediv__(self, other: "ExprInput") -> "RandomVariable":
-        return as_random_variable(other).apply_binary_op(self, TrueDivideOp())
+        return as_random_variable(other)._apply_binary_op(self, TrueDivideOp())
 
     def __floordiv__(self, other: "ExprInput") -> "RandomVariable":
-        return self.apply_binary_op(as_random_variable(other), FloorDivideOp())
+        return self._apply_binary_op(as_random_variable(other), FloorDivideOp())
 
     def __rfloordiv__(self, other: "ExprInput") -> "RandomVariable":
-        return as_random_variable(other).apply_binary_op(self, FloorDivideOp())
+        return as_random_variable(other)._apply_binary_op(self, FloorDivideOp())
 
     def materialize(
         self,
         *,
         seed: Seed | None = None,
         plate_sizes: PlateSizes | None = None,
-        phases: Iterable[Phase] | None = None,
+        phases: Iterable[str] | None = None,
     ) -> "SamplingCheckpoint":
+        """Partially materialize selected phases into an immutable checkpoint.
+
+        Parameters
+        ----------
+        seed
+            Run seed mixed with each graph-derived stochastic node entropy.
+            ``None`` selects a fresh run seed.
+        plate_sizes
+            Positive concrete sizes for every named plate in the graph.
+        phases
+            Phases to enable. ``None`` enables all remaining phases.
+        """
+
         from ..materialize import materialize
 
         return materialize(
@@ -341,12 +421,18 @@ class RandomVariable(ABC):
         seed: Seed | None = None,
         plate_sizes: PlateSizes | None = None,
     ) -> ConcreteValue:
+        """Fully materialize the graph and return its concrete value."""
+
         from ..materialize import realize
 
         return realize(self, seed=seed, plate_sizes=plate_sizes)
 
     @abstractmethod
-    def structurally_equal(self, other: "RandomVariable") -> bool: ...
+    def structurally_equal(self, other: "RandomVariable") -> bool:
+        """Compare exact computation structure while ignoring RNG resolution."""
+
+        ...
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, RandomVariable) and self.structurally_equal(other)
 
@@ -357,11 +443,11 @@ class Constant(RandomVariable):
 
     @staticmethod
     def of(value: Data, dtype: DataType) -> "Constant":
-        return constant(value, dtype=dtype)
+        return cast(Constant, constant(value, dtype=dtype))
 
     @staticmethod
     def array(arr: np.ndarray, dtype: DataType, layout: PlateLayout) -> "Constant":
-        return constant(arr, plates=layout, dtype=dtype)
+        return cast(Constant, constant(arr, plates=layout, dtype=dtype))
 
     @override
     def _compute_dependencies(self) -> tuple[Dependency, ...]:
@@ -379,7 +465,7 @@ class Constant(RandomVariable):
         return self.val.layout
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return frozenset()
 
     @override
@@ -415,12 +501,28 @@ ExprInput: TypeAlias = RandomVariable | Scalar
 
 
 def constant(
-    value: Data,
+    value: bool | int | float | np.generic | np.ndarray,
     *,
     plates: Iterable[Plate] = (),
     dtype: DataType | None = None,
-) -> Constant:
-    """Create a constant through the canonical concrete-value boundary."""
+) -> RandomVariable:
+    """Create an immutable concrete expression.
+
+    Parameters
+    ----------
+    value
+        Boolean, integer, floating scalar, NumPy scalar, or NumPy array.
+    plates
+        Named axes for non-scalar values. The number of plates must equal the
+        array rank.
+    dtype
+        Optional canonical dtype. When omitted, it is inferred from ``value``.
+
+    Returns
+    -------
+    RandomVariable
+        A deterministic expression containing a read-only NumPy value.
+    """
 
     resolved_dtype = DataType.infer(value) if dtype is None else dtype
     layout = PlateLayout.wrap(plates)

@@ -79,15 +79,18 @@ Full materialization followed by extraction of the root concrete value.
 Every expression must expose:
 
 ```python
-expr.plates: frozenset[str]
-expr.plate_layout: PlateLayout
+expr.dependencies: Mapping[str, RandomVariable]
+expr.plates: tuple[str, ...]
 expr.pending_phases: frozenset[str]
+expr.has_value: bool
+expr.value_meta: ValueMeta
 ```
 
-`plates` is the semantic set used by validation. `plate_layout` also records the
-canonical axis order used to align concrete values. v0.1 sorts plate names
-lexicographically. `check_plates` compares canonical layouts and is therefore
-insensitive to the caller's argument order.
+`dependencies` is an immutable, name-sorted mapping of direct graph inputs.
+`plates` records the canonical axis order used to align concrete values; v0.1
+sorts plate names lexicographically. `check_plates` compares canonical layouts
+and is therefore insensitive to the caller's argument order. Concrete
+`PlateLayout` and dependency reconstruction types are internal.
 
 ### 4.1 Inputs and constants
 
@@ -95,7 +98,7 @@ Python scalar inputs are automatically represented as plate-free constants. The
 public value boundary is:
 
 ```python
-constant(value, *, plates=(), dtype=None) -> Constant
+constant(value, *, plates=(), dtype=None) -> RandomVariable
 ```
 
 When `dtype` is omitted, supported Boolean, integer, and floating Python/NumPy
@@ -109,8 +112,8 @@ value must use canonical NumPy storage:
 Complex, object, and string values must be rejected. Support metadata is
 derived after boundary coercion, and values with explicitly narrower support
 must satisfy it. For a non-scalar constant, the number and order of declared
-plates must agree with its runtime rank at construction. `Constant.of` and
-`Constant.array` remain convenience constructors over the same boundary.
+plates must agree with its runtime rank at construction. Concrete constant
+nodes and their lower-level constructors are internal.
 
 ### 4.2 Core node families
 
@@ -445,13 +448,12 @@ is outside structural equality and outside v0.1.
 
 ## 13. Errors
 
-The public error hierarchy is:
+The documented error hierarchy under `stoch_ir.errors` is:
 
 ```text
-StochasticProgrammingError
+StochIRError
 ├── GraphValidationError
 │   ├── GraphCycleError
-│   ├── DependencyRewriteError
 │   └── RngLabelError
 ├── PlateError
 │   ├── DuplicatePlateError
@@ -461,13 +463,14 @@ StochasticProgrammingError
 │   └── PlateSizeMismatchError
 ├── PhaseError
 ├── MaterializationError
-│   ├── BackendError
-│   │   └── InvalidSupportError
-│   ├── UnrealizedGraphError
-│   └── UnresolvedRandomnessError
+│   └── UnrealizedGraphError
+└── ValueValidationError
+    └── InvalidSupportError
 ```
 
 Errors should report the relevant node, requested operation, expected state, and actual state where applicable.
+Internal dependency-rewrite and RNG-lifecycle failures are not public
+extension contracts.
 
 ## 14. Explicit non-goals
 

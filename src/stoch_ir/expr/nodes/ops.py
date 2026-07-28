@@ -3,8 +3,8 @@ from dataclasses import replace
 
 from typing_extensions import Self, override
 
-from ..meta import ConcreteValue, Phase, PlateLayout, PlateSizes, ValueMeta
-from ..ops import BinOpImpl, ReductionImpl, UnaryOpImpl
+from ..meta import ConcreteValue, PlateLayout, PlateSizes, ValueMeta
+from ..ops import BinOpImpl, Reduction, UnaryOpImpl
 from .base import Dependency, RandomVariable, rv_impl
 
 
@@ -34,7 +34,7 @@ class BinOpNode(RandomVariable):
         return self.lhs.plate_layout | self.rhs.plate_layout
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return self.lhs.pending_phases | self.rhs.pending_phases
 
     @override
@@ -106,7 +106,7 @@ class UnaryOpNode(RandomVariable):
         return self.arg.plate_layout
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return self.arg.pending_phases
 
     @override
@@ -141,7 +141,7 @@ class UnaryOpNode(RandomVariable):
 
 @rv_impl
 class ReductionOpNode(RandomVariable):
-    op: ReductionImpl
+    op: Reduction
     arg: RandomVariable
     removed_plates: PlateLayout
 
@@ -167,7 +167,7 @@ class ReductionOpNode(RandomVariable):
         return self.arg.plate_layout - self.removed_plates
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return self.arg.pending_phases
 
     @override

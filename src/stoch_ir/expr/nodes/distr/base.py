@@ -39,12 +39,12 @@ class RandomDistributionNode(RandomVariable, ABC):
         super().__post_init__()
 
     @override
-    def _compute_pending_phases(self) -> frozenset[Phase]:
+    def _compute_pending_phases(self) -> frozenset[str]:
         return (
             frozenset({self.phase_requirement})
             if self.phase_requirement is not None
             else frozenset()
-        ).union(*(dep.var.pending_phases for dep in self.dependencies))
+        ).union(*(dep.pending_phases for dep in self.dependencies.values()))
 
     @override
     def _compute_has_value(self) -> bool:

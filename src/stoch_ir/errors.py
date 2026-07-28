@@ -1,55 +1,88 @@
-class StochasticProgrammingError(Exception): ...
+"""Public exception hierarchy for Stochastic Program IR."""
 
 
-class GraphValidationError(StochasticProgrammingError): ...
+class StochIRError(Exception):
+    """Base class for all documented Stochastic Program IR errors."""
 
 
-# Legacy duplicate-name error intentionally retired. RNG labels supplement the
-# mandatory graph-derived entropy and therefore do not define shared streams.
-#
-# class DuplicateRNGNameError(GraphValidationError): ...
+class GraphValidationError(StochIRError):
+    """Raised when an expression graph violates a structural invariant."""
 
 
-class GraphCycleError(GraphValidationError): ...
+class GraphCycleError(GraphValidationError):
+    """Raised when a cycle is found in an expression graph."""
 
 
-class DependencyRewriteError(GraphValidationError): ...
+class DependencyRewriteError(GraphValidationError):
+    """Raised when an internal immutable dependency rewrite is invalid."""
 
 
-class RngLabelError(GraphValidationError): ...
+class RngLabelError(GraphValidationError):
+    """Raised when a distribution receives an invalid RNG label."""
 
 
-class PlateError(StochasticProgrammingError): ...
+class PlateError(StochIRError):
+    """Base class for named-plate validation errors."""
 
 
-class DuplicatePlateError(PlateError): ...
+class DuplicatePlateError(PlateError):
+    """Raised when the same plate is introduced more than once."""
 
 
-class PlateExpectationError(PlateError): ...
+class PlateExpectationError(PlateError):
+    """Raised when an expression does not have the expected plates."""
 
 
-class UnknownPlateError(PlateError): ...
+class UnknownPlateError(PlateError):
+    """Raised when an operation names a plate that is not present."""
 
 
-class MissingPlateSizeError(PlateError): ...
+class MissingPlateSizeError(PlateError):
+    """Raised when materialization needs a plate size that was not supplied."""
 
 
-class PhaseError(StochasticProgrammingError): ...
+class PhaseError(StochIRError):
+    """Raised when a sampling phase name or selection is invalid."""
 
 
-class MaterializationError(StochasticProgrammingError): ...
+class MaterializationError(StochIRError):
+    """Base class for staged materialization and realization failures."""
 
 
-class BackendError(MaterializationError): ...
+class ValueValidationError(StochIRError):
+    """Raised when a concrete value violates dtype, rank, or support rules."""
 
 
-class InvalidSupportError(BackendError): ...
+class InvalidSupportError(ValueValidationError):
+    """Raised when an operation or distribution receives invalid support."""
 
 
-class UnrealizedGraphError(MaterializationError): ...
+class UnrealizedGraphError(MaterializationError):
+    """Raised when concrete data is requested from an unrealized graph."""
 
 
-class PlateSizeMismatchError(PlateError, MaterializationError): ...
+class PlateSizeMismatchError(PlateError, MaterializationError):
+    """Raised when materialization conflicts with a resolved plate size."""
 
 
-class UnresolvedRandomnessError(MaterializationError): ...
+class UnresolvedRandomnessError(MaterializationError):
+    """Raised when internal RNG resolution has not completed."""
+
+
+__all__ = [
+    "DuplicatePlateError",
+    "GraphCycleError",
+    "GraphValidationError",
+    "InvalidSupportError",
+    "MaterializationError",
+    "MissingPlateSizeError",
+    "PhaseError",
+    "PlateError",
+    "PlateExpectationError",
+    "PlateSizeMismatchError",
+    "RngLabelError",
+    "StochIRError",
+    "UnknownPlateError",
+    "UnrealizedGraphError",
+    "ValueValidationError",
+]
