@@ -1,7 +1,7 @@
 """Validate the wheel's inline-typing and public-import contract."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 from zipfile import ZipFile
 
 

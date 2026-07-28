@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import replace
+
 import numpy as np
 from typing_extensions import Self, override
 

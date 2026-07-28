@@ -23,14 +23,14 @@ from stoch_ir.errors import (
     PlateSizeMismatchError,
     UnknownPlateError,
 )
+from stoch_ir.expr.nodes.base import (
+    Dependency,
+    as_random_variable,
+)
 from stoch_ir.expr.nodes.ops import (
     BinOpNode,
     ReductionOpNode,
     UnaryOpNode,
-)
-from stoch_ir.expr.nodes.base import (
-    Dependency,
-    as_random_variable,
 )
 from stoch_ir.expr.nodes.shape import add_plates
 from stoch_ir.expr.ops.binary_op import FloorDivideOp

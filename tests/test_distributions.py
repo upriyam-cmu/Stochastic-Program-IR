@@ -1,6 +1,7 @@
+from typing import Any, cast
+
 import numpy as np
 import pytest
-from typing import Any, cast
 
 from stoch_ir import (
     Bernoulli,

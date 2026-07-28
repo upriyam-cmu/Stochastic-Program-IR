@@ -1,9 +1,11 @@
 from collections.abc import Mapping
 from dataclasses import replace
+
 import numpy as np
 from typing_extensions import Self, override
 
 from ....errors import InvalidSupportError
+from ....phases import current_sampling_phase
 from ....rng import RngLabel
 from ...meta import (
     ConcreteValue,
@@ -14,7 +16,6 @@ from ...meta import (
     ValueMeta,
     ValueSupport,
 )
-from ....phases import current_sampling_phase
 from ..base import (
     Dependency,
     ExprInput,

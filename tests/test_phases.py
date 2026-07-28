@@ -1,5 +1,6 @@
-import pytest
 from typing import Any, cast
+
+import pytest
 
 from stoch_ir import (
     Normal,
@@ -25,9 +26,8 @@ def test_sampling_phase_nests_and_restores() -> None:
 
 
 def test_sampling_phase_restores_after_exception() -> None:
-    with pytest.raises(RuntimeError):
-        with sampling_phase("temporary"):
-            raise RuntimeError("stop")
+    with pytest.raises(RuntimeError), sampling_phase("temporary"):
+        raise RuntimeError("stop")
     assert current_sampling_phase() is None
 
 
@@ -37,9 +37,8 @@ def test_distribution_outside_phase_is_unphased() -> None:
 
 @pytest.mark.parametrize("phase", ["", None, 1])
 def test_sampling_phase_rejects_invalid_names(phase: object) -> None:
-    with pytest.raises(PhaseError):
-        with sampling_phase(cast(Any, phase)):
-            pass
+    with pytest.raises(PhaseError), sampling_phase(cast(Any, phase)):
+        pass
 
 
 @pytest.mark.parametrize("phase", ["", None, 1])

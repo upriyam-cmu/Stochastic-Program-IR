@@ -23,9 +23,9 @@ from .shape import AddPlatesNode
 
 __all__ = [
     "AddPlatesNode",
-    "BinOpNode",
     "Bernoulli",
     "BernoulliDistribution",
+    "BinOpNode",
     "Constant",
     "Dependency",
     "ExprInput",

@@ -43,11 +43,7 @@ with sampling_phase("observation"):
         rng_label="activations",
     ).add_plates("batch", expect=("layer",))
 
-layer_score = (
-    activations
-    .mean("batch")
-    .check_plates("layer")
-)
+layer_score = activations.mean("batch").check_plates("layer")
 ```
 
 `add_plates(..., expect=...)` combines an exact precondition with an explicit stochastic transformation. The example states that `activations` already varies over `"layer"`, verifies that claim, and then introduces independent samples over `"batch"`.
@@ -136,10 +132,7 @@ object aliasing and resolved randomness.
 x = Normal(0.0, 1.0)
 
 shared = x + x
-independent = (
-    Normal(0.0, 1.0)
-    + Normal(0.0, 1.0)
-)
+independent = Normal(0.0, 1.0) + Normal(0.0, 1.0)
 
 assert shared == independent
 

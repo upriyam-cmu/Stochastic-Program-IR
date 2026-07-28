@@ -65,8 +65,8 @@ the same source twice, two edges survive:
 
 ```python
 source = Normal(0, 1)
-single = Normal(source, 1)            # one projected edge
-repeated = Normal(source + source, 1) # two projected edges
+single = Normal(source, 1)  # one projected edge
+repeated = Normal(source + source, 1)  # two projected edges
 ```
 
 The two graphs therefore derive different hashes even though both projected

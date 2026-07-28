@@ -44,7 +44,6 @@ from ..rng import HashDigest, NodeEntropy, derive_node_entropy
 from .nodes.base import RandomVariable
 from .nodes.distr.base import RandomDistributionNode
 
-
 _HASH_SCHEME = b"spl-v0.1:stochastic-projection"
 
 

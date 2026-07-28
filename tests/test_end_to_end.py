@@ -1,6 +1,7 @@
-import numpy as np
 import runpy
 import sys
+
+import numpy as np
 
 from stoch_ir import (
     Bernoulli,

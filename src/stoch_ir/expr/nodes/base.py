@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Iterable,
     TypeAlias,
     TypeVar,
     cast,

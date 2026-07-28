@@ -1,8 +1,8 @@
-import unittest
 import os
-from pathlib import Path
 import subprocess
 import sys
+import unittest
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -13,15 +13,15 @@ from stoch_ir import (
     SamplingCheckpoint,
     sampling_phase,
 )
-from stoch_ir.expr.hashing import (
-    resolve_stochastic_hashes,
-)
 from stoch_ir.errors import (
     MissingPlateSizeError,
     PhaseError,
     PlateSizeMismatchError,
     UnrealizedGraphError,
     UnresolvedRandomnessError,
+)
+from stoch_ir.expr.hashing import (
+    resolve_stochastic_hashes,
 )
 from stoch_ir.rng import NodeEntropy
 
@@ -259,12 +259,14 @@ class MaterializationTests(unittest.TestCase):
         with self.assertRaises(MissingPlateSizeError):
             expr.realize(seed=1)
         for invalid in (0, -1, True, 1.5):
-            with self.subTest(size=invalid):
-                with self.assertRaises(PlateSizeMismatchError):
-                    expr.realize(
-                        seed=1,
-                        plate_sizes=cast(Any, {"row": invalid}),
-                    )
+            with (
+                self.subTest(size=invalid),
+                self.assertRaises(PlateSizeMismatchError),
+            ):
+                expr.realize(
+                    seed=1,
+                    plate_sizes=cast(Any, {"row": invalid}),
+                )
 
     def test_checkpoint_sizes_are_fixed(self) -> None:
         checkpoint = (
