@@ -110,7 +110,7 @@ class _LogSumExpReduction(Reduction):
 
     @override
     def compute_value(self, child: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
-        return np.logaddexp.reduce(child, axis=axes)
+        return np.ufunc.reduce(np.logaddexp, child, axis=axes)
 
 
 MEAN = _MeanReduction()

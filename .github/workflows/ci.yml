@@ -8,7 +8,19 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync --locked --group dev
+      - run: uv run --locked --group dev ruff check .
+      - run: uv run --locked --group dev ruff format --check .
+
+  typecheck:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,20 +32,37 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --group dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run ty check
-      - run: uv run pytest --cov --cov-report=term-missing
+      - run: uv sync --locked --group dev
+      - run: uv run --locked --group dev ty check --python-version 3.10
 
-      - if: matrix.python-version == '3.14'
-        run: uv build
-      - if: matrix.python-version == '3.14'
-        run: uv run python scripts/check_wheel.py dist/*.whl
-      - if: matrix.python-version == '3.14'
-        run: uv pip install --target .wheel-smoke --reinstall ./dist/*.whl
-      - if: matrix.python-version == '3.14'
-        run: PYTHONPATH=.wheel-smoke .venv/bin/python scripts/smoke_public_api.py
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked --group dev
+      - run: uv run --locked --group dev pytest --cov --cov-report=term-missing
+
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync --locked --group dev
+      - run: uv build
+      - run: uv run --locked --group dev python scripts/check_wheel.py dist/*.whl
+      - run: uv pip install --target .wheel-smoke --no-deps --reinstall ./dist/*.whl
+      - run: PYTHONPATH=.wheel-smoke .venv/bin/python scripts/smoke_public_api.py
 
   docs:
     runs-on: ubuntu-latest
@@ -43,9 +72,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
-      - run: uv sync --group docs
-      - run: uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
-      - run: uv run python scripts/check_docs.py docs/_build/html
+      - run: uv sync --locked --group docs
+      - run: uv run --locked --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
+      - run: uv run --locked --group docs python scripts/check_docs.py docs/_build/html
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
