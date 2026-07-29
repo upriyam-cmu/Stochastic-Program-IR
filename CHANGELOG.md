@@ -13,4 +13,5 @@ alpha.
 - Added normal, uniform, and Bernoulli sampling with support validation and
   NumPy execution.
 - Added package, documentation, artifact, and cross-version CI validation.
+- Added secretless Trusted Publishing through TestPyPI and PyPI release gates.
 - Adopted the BSD 3-Clause License.
