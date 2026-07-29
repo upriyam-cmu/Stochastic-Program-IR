@@ -30,6 +30,21 @@ graph preserves:
 The name does not imply that v0.1 includes serialization, optimization passes,
 compilation, or multiple numeric backends.
 
+## Installation
+
+Stochastic Program IR requires Python 3.10 or newer:
+
+```console
+pip install stoch-ir
+```
+
+The public API is still in alpha. Pin the exact prerelease when reproducibility
+matters:
+
+```console
+pip install "stoch-ir==0.1.0a1"
+```
+
 ## Quick start
 
 ```python
@@ -207,17 +222,20 @@ API boundary.
 
 ## Documentation and development
 
-- [Documentation source](docs/index.md)
-- [v0.1 specification](specs/specification-v0.1.md)
-- [Public API contract](docs/api-v0.1.md)
-- [Hashing and materialization architecture](docs/graph-hashing-and-materialization.md)
-- [Implementation plan](docs/implementation-plan-v0.1.md)
+- [Documentation site](https://upriyam-cmu.github.io/Stochastic-Program-IR/)
+- [Getting started](https://upriyam-cmu.github.io/Stochastic-Program-IR/getting-started.html)
+- [v0.1 specification](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/specs/specification-v0.1.md)
+- [Public API contract](https://upriyam-cmu.github.io/Stochastic-Program-IR/api-v0.1.html)
+- [Hashing and materialization architecture](https://upriyam-cmu.github.io/Stochastic-Program-IR/graph-hashing-and-materialization.html)
+- [Contributor guide](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CHANGELOG.md)
 
 The package ships inline annotations with `py.typed`. CI checks Ruff, ty, tests
-with a 95% branch-coverage floor, built-wheel imports, and the documentation
-site.
+on Python 3.10, 3.11, and the latest supported Python, with warnings treated as
+errors and a 95% branch-coverage floor. It also checks built-wheel imports and
+the documentation site.
 
 ## License
 
 Stochastic Program IR is distributed under the
-[BSD 3-Clause License](LICENSE).
+[BSD 3-Clause License](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/LICENSE).

@@ -29,6 +29,13 @@ graph-hashing-and-materialization
 implementation-plan-v0.1
 ```
 
+## Project resources
+
+- [Source repository](https://github.com/upriyam-cmu/Stochastic-Program-IR)
+- [Issue tracker](https://github.com/upriyam-cmu/Stochastic-Program-IR/issues)
+- [Contributor guide](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CHANGELOG.md)
+
 ## License
 
 Stochastic Program IR is distributed under the

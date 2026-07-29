@@ -31,7 +31,28 @@ def test_distribution_metadata_declares_project_urls() -> None:
     assert metadata("stoch-ir").get_all("Project-URL") == [
         "Homepage, https://github.com/upriyam-cmu/Stochastic-Program-IR",
         "Documentation, https://upriyam-cmu.github.io/Stochastic-Program-IR/",
+        "Issues, https://github.com/upriyam-cmu/Stochastic-Program-IR/issues",
+        (
+            "Changelog, https://github.com/upriyam-cmu/Stochastic-Program-IR/"
+            "blob/main/CHANGELOG.md"
+        ),
     ]
+
+
+def test_distribution_metadata_describes_alpha_audience() -> None:
+    package_metadata = metadata("stoch-ir")
+
+    classifiers = package_metadata.get_all("Classifier")
+
+    assert classifiers is not None
+    assert "Development Status :: 3 - Alpha" in classifiers
+    assert "Typing :: Typed" in classifiers
+    assert {keyword.strip() for keyword in package_metadata["Keywords"].split(",")} == {
+        "monte carlo",
+        "random variables",
+        "simulation",
+        "stochastic programming",
+    }
 
 
 def test_top_level_api_is_curated() -> None:

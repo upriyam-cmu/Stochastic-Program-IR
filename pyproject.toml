@@ -6,6 +6,27 @@ readme = "README.md"
 authors = [
     { name = "Utkarsh Priyam" }
 ]
+keywords = [
+    "monte carlo",
+    "random variables",
+    "simulation",
+    "stochastic programming",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
@@ -17,6 +38,8 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/upriyam-cmu/Stochastic-Program-IR"
 Documentation = "https://upriyam-cmu.github.io/Stochastic-Program-IR/"
+Issues = "https://github.com/upriyam-cmu/Stochastic-Program-IR/issues"
+Changelog = "https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

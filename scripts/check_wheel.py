@@ -39,6 +39,15 @@ def main(wheel: Path) -> None:
             "Project-URL: Documentation, "
             "https://upriyam-cmu.github.io/Stochastic-Program-IR/\n"
         ),
+        (
+            "Project-URL: Issues, "
+            "https://github.com/upriyam-cmu/Stochastic-Program-IR/issues\n"
+        ),
+        (
+            "Project-URL: Changelog, "
+            "https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/"
+            "CHANGELOG.md\n"
+        ),
     )
     missing_urls = [url for url in expected_urls if url not in metadata]
     if missing_urls:
