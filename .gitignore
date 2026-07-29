@@ -5,8 +5,13 @@ build/
 dist/
 wheels/
 *.egg-info
+.coverage
+htmlcov/
+docs/_build/
+.wheel-smoke/
 
 # Virtual environments
 .venv
 
 .DS_Store
+repair_file_ownership.sh

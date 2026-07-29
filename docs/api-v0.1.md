@@ -1,83 +1,108 @@
 # v0.1 Public API Contract
 
-The `.pyi` files under `src/stochastic_programming_library` are the machine-readable API contract. This page summarizes the intended imports and behavior. None of these runtime objects is implemented yet.
+The inline-typed runtime is the machine-readable contract. This page defines
+the intentionally curated alpha surface.
 
 ## Top-level imports
 
 ```python
-from stochastic_programming_library import (
-    BackendError,
+from stoch_ir import (
     Bernoulli,
-    Constant,
-    DistributionKind,
-    DuplicatePlateError,
-    DuplicateRNGNameError,
-    Expr,
-    GraphCycleError,
-    GraphValidationError,
-    MaterializationError,
-    MissingPlateSizeError,
+    ConcreteValue,
+    DataType,
     Normal,
-    NumPyBackend,
-    PhaseError,
-    PlateError,
-    PlateExpectationError,
-    Reduction,
-    RNGKey,
-    SampleRequest,
-    SamplingBackend,
-    StochasticProgrammingError,
+    RandomVariable,
+    SamplingCheckpoint,
     Uniform,
-    UnknownPlateError,
-    UnrealizedGraphError,
-    current_sampling_phase,
+    ValueMeta,
+    ValueSupport,
+    constant,
+    errors,
     exp,
     log,
+    reductions,
     sampling_phase,
     softplus,
 )
+
+from stoch_ir import __version__
 ```
 
-## Construction
+Concrete node classes, plate layouts, dependency-rewrite hooks, current phase
+state, lowercase distribution aliases, and generic operation implementations
+are internal.
+
+## Construction and transforms
 
 ```python
-Constant(value, *, plates=())
-Normal(mu, sigma, *, rng_name=None)
-Uniform(low, high, *, rng_name=None)
-Bernoulli(p, *, rng_name=None)
-```
-
-Python scalar distribution parameters are coerced to constants. A distribution records the active `sampling_phase` at construction.
-
-## Expression properties
-
-```python
-expr.plates
-expr.plate_order
-expr.pending_phases
-expr.enabled_phases
-expr.is_fully_realized
-```
-
-## Expression transforms
-
-```python
-expr + other
-expr - other
-expr * other
-expr / other
+constant(value, *, plates=(), dtype=None)
+Normal(mu, sigma, *, plates=None, rng_label=None)
+Uniform(low=0.0, high=1.0, *, plates=None, rng_label=None)
+Bernoulli(p, *, plates=None, rng_label=None)
 
 exp(expr)
 log(expr)
 softplus(expr)
+
+expr.exp()
+expr.log()
+expr.softplus()
+expr.abs()
+abs(expr)
 ```
 
-## Plate methods
+Free and fluent forms construct structurally equal graphs. Arithmetic supports
+`+`, `-`, `*`, `/`, and `//`, including their reverse forms.
+
+`constant` accepts supported Python and NumPy Boolean, integer, and floating
+values. Metadata is authoritative and storage is canonical:
+
+| Metadata | NumPy storage |
+| --- | --- |
+| `DataType.BOOL` | `np.bool_` |
+| `DataType.INT` | `np.int64` |
+| `DataType.FLOAT` | `np.float64` |
+
+Non-scalar rank must match the number of named plates. Complex, object, and
+string values are rejected. Declared plate order maps to input array-axis order;
+concrete storage is transposed into canonical lexicographic order. Any
+iterable-valued plate argument also accepts a bare string as one plate.
+Integer inputs and operation results must fit in canonical `np.int64` storage
+without changing value.
+
+When distribution `plates` is omitted, the canonical union of parameter plates
+is used. When supplied, it is the complete output layout and must contain every
+parameter plate. The distribution produces one conditionally independent draw
+at each output coordinate.
+
+Literal distribution parameters are checked exactly during construction.
+Symbolic support metadata raises on guaranteed invalidity and warns when
+invalid values remain possible, while exact elementwise checks still run before
+sampling. Support endpoints alone do not trigger symbolic warnings, and no
+operation silently clamps values or introduces an epsilon.
+
+## Expression inspection
+
+Every `RandomVariable` exposes:
+
+```python
+expr.dependencies  # immutable Mapping[str, RandomVariable]
+expr.plates  # canonical tuple[str, ...]
+expr.pending_phases  # frozenset[str]
+expr.has_value  # bool
+expr.value_meta  # ValueMeta
+```
+
+Dependencies are name-sorted and preserve object aliasing in their values.
+Internal plate-layout and dependency-reconstruction objects are deliberately
+not part of the public contract.
+
+## Plates and reductions
 
 ```python
 expr.add_plates(*new, expect=None)
 expr.check_plates(*expected)
-expr.reduce_plates(*plates, reduction=Reduction.MEAN)
+expr.reduce_plates(*plates, reduction=reductions.MEAN)
 
 expr.mean(*plates)
 expr.sum(*plates)
@@ -87,53 +112,99 @@ expr.prod(*plates)
 expr.logsumexp(*plates)
 ```
 
-## Structural comparison
+The `reduction` keyword is required; `MEAN` above is an example, not a default.
+
+`add_plates` broadcasts an existing value without resampling it. If `expect` is
+supplied, the existing plate set must match exactly before the new plates are
+added.
+`check_plates` validates without changing the graph. Reductions explicitly
+remove named plates.
+
+The public immutable reduction objects are:
+
+```python
+reductions.MEAN
+reductions.SUM
+reductions.MAX
+reductions.MIN
+reductions.PROD
+reductions.LOGSUMEXP
+```
+
+Their common opaque type is `reductions.Reduction`. Caller-defined reductions
+are not a v0.1 extension point.
+
+## Phases and materialization
+
+```python
+with sampling_phase("latent"):
+    latent = Normal(0.0, 1.0)
+
+partial = latent.materialize(
+    phases=("latent",),
+    seed=10,
+    plate_sizes=None,
+)
+
+value = partial.realize(seed=11)
+```
+
+Phase names have no intrinsic order. Enabling a phase permanently clears that
+barrier in the returned immutable graph, but sampling still waits for concrete
+dependencies. A bare string denotes one phase, so `phases="latent"` is
+equivalent to `phases=("latent",)`.
+
+`RandomVariable.materialize` returns an opaque, non-composable
+`SamplingCheckpoint`. A checkpoint exposes:
+
+```python
+checkpoint.pending_phases
+checkpoint.is_fully_materialized
+checkpoint.materialize(...)
+checkpoint.value()
+checkpoint.realize(...)
+checkpoint.structurally_equal(other)
+checkpoint.stochastically_equal(other)
+```
+
+`value()` succeeds only after the checkpoint root is concrete. `realize()`
+enables every remaining phase and returns a `ConcreteValue`.
+
+## Concrete values
+
+`ConcreteValue` contains an immutable, read-only NumPy array and exposes:
+
+```python
+value.data
+value.plates
+value.shape
+value.meta
+value.dtype
+value.support
+```
+
+The plate tuple is the canonical axis order of `data`.
+
+## Equality
 
 ```python
 expr == other
 expr.structurally_equal(other)
+checkpoint.stochastically_equal(other_checkpoint)
 ```
 
-Comparison is exact and alias-preserving. It is not numerical closeness or algebraic equivalence.
+Structural equality compares the represented computation while ignoring object
+aliasing and RNG resolution. It is not algebraic or probabilistic equality.
+Stochastic equality is available only after materialization and additionally
+checks graph-derived node entropy, sharing, fixed plate sizes, and bound
+sampling seeds in the checkpoint's current rewritten state. Sampled
+distributions are constants and do not retain historical provenance; use
+blocked phased checkpoints when comparing unresolved stochastic structure.
 
-## Staged execution
+## Errors
 
-```python
-partial = expr.materialize(
-    phases=("latent",),
-    seed=10,
-    backend=None,
-    plate_sizes={"row": 4},
-)
-
-value = partial.realize(
-    seed=11,
-    backend=None,
-    plate_sizes={"row": 4},
-)
-```
-
-Passing `backend=None` selects the package's eventual default `NumPyBackend`. Passing `phases=None` enables all remaining phases.
-
-Extraction without new sampling is explicit:
-
-```python
-expr.assert_fully_realized()
-value = expr.value()
-```
-
-Both calls fail when a reachable distribution node remains.
-
-## Backend protocol
-
-```python
-class SamplingBackend(Protocol):
-    def sample(
-        self,
-        request: SampleRequest,
-        *,
-        rng_key: RNGKey,
-    ) -> object: ...
-```
-
-The request contains a distribution enum, aligned concrete parameters, and an unnamed output shape. Backend implementations do not traverse graphs or interpret plates and phases.
+Documented failures live under `stoch_ir.errors`. All public exceptions derive
+from `errors.StochIRError`, and all public warnings derive from
+`errors.StochIRWarning`. The curated hierarchies cover graph validation,
+plates, phases, materialization, concrete-value validation, and invalid or
+possibly invalid distribution support.

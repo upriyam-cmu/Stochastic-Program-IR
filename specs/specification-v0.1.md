@@ -1,4 +1,4 @@
-# Stochastic Programming Library v0.1 Specification
+# Stochastic Program IR v0.1 Specification
 
 This document is the normative design contract for v0.1. The words **must**, **should**, and **may** describe required, recommended, and optional behavior respectively.
 
@@ -10,7 +10,7 @@ The product must make these relationships salient in source code and inspectable
 
 - stochastic dependencies;
 - shared versus independent samples;
-- plate introduction and reduction;
+- independent sampling, plate broadcasting, and reduction;
 - exact plate expectations at important boundaries;
 - sampling-phase membership;
 - partial versus complete materialization.
@@ -21,26 +21,38 @@ The product is not a probabilistic inference system. It performs forward samplin
 
 ### 2.1 One immutable representation
 
-Every program is an immutable expression DAG. Graph construction, validation, and materialization return expressions and never mutate an existing expression.
+Every program is an immutable expression DAG. Graph construction and validation
+return expressions and never mutate an existing expression.
 
-A partially materialized program is represented by the same expression API as an untouched program. Successfully sampled distribution nodes are replaced by constant nodes in a new DAG.
+Materialization returns an opaque `SamplingCheckpoint` around a rewritten DAG.
+Successfully sampled distribution nodes are replaced by constant nodes. The
+checkpoint can continue materialization and extract a value, but it cannot be
+used as an operand in a new downstream expression.
 
 ### 2.2 Exact stochastic intent
 
-The API must not silently infer whether the caller intended to introduce, preserve, or remove a plate:
+The API must distinguish sampling from deterministic shape changes:
 
-- `add_plates` explicitly introduces independent replication;
+- distribution `plates=` specifies the complete layout over which draws occur;
+- `add_plates` explicitly broadcasts an existing value without resampling it;
 - `check_plates` explicitly validates the complete current plate set;
 - `reduce_plates` explicitly removes plates using a named reduction;
 - `add_plates(expect=...)` validates the complete pre-transformation plate set before adding the requested plates.
 
 ### 2.3 Orthogonal plates and phases
 
-Plates describe **where independent multiplicity exists**. Phases describe **when a distribution node may be sampled**. Neither changes the semantics of the other.
+Plates name array axes. A distribution's output plates describe **where
+conditionally independent draws occur**; deterministic plate operations may
+instead describe shared or computed values over those axes. Phases describe
+**when a distribution node may be sampled**. Neither changes the semantics of
+the other.
 
-### 2.4 Backend isolation
+### 2.4 Numeric isolation
 
-The graph layer owns graph traversal, dependency readiness, plate alignment, phase eligibility, RNG-key derivation, and graph rewriting. A backend only samples a concrete distribution request using an opaque RNG key.
+The graph layer owns graph traversal, dependency readiness, plate alignment,
+phase eligibility, RNG entropy derivation, and graph rewriting. v0.1 uses NumPy for
+concrete value propagation and distribution sampling; other array-library
+conversions occur outside the graph.
 
 ## 3. Terms
 
@@ -50,7 +62,8 @@ An immutable node in a symbolic DAG. Every public stochastic or deterministic op
 
 ### Plate
 
-A string identifier for an independent replication axis, such as `"batch"`, `"row"`, or `"particle"`.
+A string identifier for a named array axis, such as `"batch"`, `"row"`, or
+`"particle"`.
 
 Plate names do not contain sizes. Concrete sizes are supplied during materialization so the same graph can be realized at different extents.
 
@@ -60,7 +73,8 @@ A string attached to a distribution node at construction time. A distribution co
 
 ### Materialization
 
-An immutable graph rewrite that samples eligible distribution nodes and replaces them with constants.
+An immutable graph rewrite that samples eligible distribution nodes, replaces
+them with constants, and returns a `SamplingCheckpoint`.
 
 ### Realization
 
@@ -71,27 +85,47 @@ Full materialization followed by extraction of the root concrete value.
 Every expression must expose:
 
 ```python
-expr.plates: frozenset[str]
-expr.plate_order: tuple[str, ...]
-expr.pending_phases: frozenset[str | None]
-expr.enabled_phases: frozenset[str | None]
-expr.is_fully_realized: bool
+expr.dependencies: Mapping[str, RandomVariable]
+expr.plates: tuple[str, ...]
+expr.pending_phases: frozenset[str]
+expr.has_value: bool
+expr.value_meta: ValueMeta
 ```
 
-`plates` is the semantic set used by validation. `plate_order` is the deterministic axis order used to align concrete values. v0.1 orders plates by first appearance during expression construction:
+`dependencies` is an immutable, name-sorted mapping of direct graph inputs.
+`plates` records the canonical axis order used to align concrete values; v0.1
+sorts plate names lexicographically. `check_plates` compares canonical layouts
+and is therefore insensitive to the caller's argument order. Concrete
+`PlateLayout` and dependency reconstruction types are internal.
 
-- distribution parameters are visited in their declared parameter order;
-- binary operators visit the left operand before the right operand;
-- `add_plates` appends newly added plates in call order;
-- reductions preserve the order of remaining plates.
-
-Plate order is not part of `check_plates`, which compares sets. It is part of materialized value metadata and exact graph equality.
+An API parameter that accepts an iterable of plate names must also treat one
+bare string as a single plate. For example, `plates="row"` is equivalent to
+`plates=("row",)`.
 
 ### 4.1 Inputs and constants
 
-Python scalar inputs are automatically represented as plate-free constants. A public `Constant(value, plates=...)` constructor must allow callers to inject an existing backend value and describe its named axes.
+Python scalar inputs are automatically represented as plate-free constants. The
+public value boundary is:
 
-For a non-scalar constant, its number and order of declared plates must agree with its runtime rank when the selected backend exposes rank. This validation may occur at construction or first materialization.
+```python
+constant(value, *, plates=(), dtype=None) -> RandomVariable
+```
+
+When `dtype` is omitted, supported Boolean, integer, and floating Python/NumPy
+kinds are inferred. `ValueMeta.dtype` is authoritative, and every concrete
+value must use canonical NumPy storage:
+
+- `BOOL` → `np.bool_`;
+- `INT` → `np.int64`;
+- `FLOAT` → `np.float64`.
+
+Complex, object, and string values must be rejected. Support metadata is
+derived after boundary coercion, and values with explicitly narrower support
+must satisfy it. For a non-scalar constant, the number of declared plates must
+agree with its runtime rank at construction. Declared plate order maps directly
+to input array-axis order. The boundary transposes data as needed into canonical
+lexicographic plate order before storing it. Concrete constant nodes and their
+lower-level constructors are internal.
 
 ### 4.2 Core node families
 
@@ -111,21 +145,60 @@ Validation calls do not create nodes.
 v0.1 must specify these distributions:
 
 ```python
-Normal(mu, sigma, *, rng_name=None)
-Uniform(low, high, *, rng_name=None)
-Bernoulli(p, *, rng_name=None)
+Normal(mu, sigma, *, plates=None, rng_label=None)
+Uniform(low=0.0, high=1.0, *, plates=None, rng_label=None)
+Bernoulli(p, *, plates=None, rng_label=None)
 ```
 
-Parameters accept expressions or scalar constants. A distribution's plates are the ordered union of its parameter plates plus any plates introduced around the expression through `add_plates`.
+Parameters accept expressions or scalar constants. When `plates` is omitted, a
+distribution's output layout is the canonical union of its parameter plates.
+When supplied, `plates` is the complete output layout, and every parameter's
+plates must be a subset of it. A parameter is broadcast over output plates it
+does not contain. The distribution makes one conditionally independent draw at
+every output coordinate.
 
-`rng_name` is an optional stable, human-readable RNG address within the reachable graph. Duplicate explicit RNG names in one reachable graph are invalid. When omitted, the graph engine derives a deterministic address from exact DAG topology. Explicit names are recommended at semantic boundaries and in agent-generated programs.
+`rng_label` must be `None` or a non-empty string. It is optional human-readable entropy mixed into a node's
+graph-derived entropy. It never replaces the graph hash and cannot opt two
+distinct nodes into a shared random stream. Shared randomness is represented by
+reusing the same distribution node.
+
+The graph contribution is derived from a stochastic-only projection containing
+stochastic dependencies, direct stochastic consumers, repeated-use
+multiplicities, and a canonical enumeration for otherwise symmetric nodes.
+
+Distribution parameters are validated in three stages:
+
+- literal `Constant` arguments are inspected exactly at construction;
+- symbolic arguments use conservative support metadata, with an error when
+  invalidity is guaranteed and a warning when invalid values remain possible;
+- concrete sampled parameters are checked exactly immediately before calling
+  NumPy.
+
+Support endpoints alone do not cause a symbolic warning. This permits
+closed-interval metadata to stand in for domains whose mathematical boundary
+has extended values. The library does not silently clamp values or introduce
+an epsilon; stabilized behavior must be represented by an explicit operation.
+
+`Uniform` has symbolic bounds, `FLOAT` output, and requires `low < high`
+elementwise at sampling. Its conservative support is:
+
+- `UNIT_INTERVAL` when both bound supports are within `UNIT_INTERVAL`;
+- `POSITIVE_BRANCH` when the lower-bound support is nonnegative;
+- `NEGATIVE_BRANCH` when the upper-bound support is nonpositive;
+- `REAL` otherwise.
+
+`Bernoulli` has symbolic `p`, `BOOL` output, `UNIT_INTERVAL` support, and
+requires `0 <= p <= 1` elementwise at sampling.
 
 v0.1 must specify:
 
-- binary `+`, `-`, `*`, and `/`;
-- unary `exp(expr)`, `log(expr)`, and `softplus(expr)`.
+- binary `+`, `-`, `*`, `/`, and `//`;
+- unary `exp(expr)`, `log(expr)`, `softplus(expr)`, and expression `abs()`.
 
-Deterministic operators use the ordered union of operand plates and must align concrete operands by plate name before applying a backend-neutral numeric operation.
+Deterministic operators use the canonical union of operand plates and must align
+concrete operands by plate name before applying the NumPy operation.
+Floor division produces `FLOAT` metadata when either operand is floating and
+`INT` otherwise.
 
 ## 6. Plate operations
 
@@ -135,14 +208,16 @@ Deterministic operators use the ordered union of operand plates and must align c
 expr.add_plates(*plates, expect=None) -> Expr
 ```
 
-`add_plates` adds exactly the requested new independent replication plates.
+`add_plates` adds exactly the requested new plates by broadcasting the existing
+value. It never creates new random draws.
 
 Preconditions:
 
 - every plate must be a non-empty string;
 - no requested plate may occur more than once;
 - no requested plate may already exist on `expr`;
-- when `expect` is provided, `expr.plates` must exactly equal `frozenset(expect)` before any plate is added.
+- when `expect` is provided, `expr.plates` must have exact set equality with
+  `expect` before any plate is added.
 
 `expect` is validation sugar only:
 
@@ -157,10 +232,13 @@ expr.check_plates("feature").add_plates("batch")
 ```
 
 The returned graph contains only an `AddPlates` node, never a validation node.
+During materialization, the child expression is evaluated or sampled according
+to its own layout and the resulting value is then broadcast over the new
+plates.
 
-An `AddPlates` node is a stochastic lifting operation, not a numeric repeat. During materialization, newly introduced plates propagate through deterministic nodes to the stochastic frontier of the child expression. Each distribution reached at that frontier samples independently across the new plates, and propagation stops there: stochastic distribution parameters retain their own plates and are aligned or broadcast rather than implicitly resampled. A deterministic constant with no stochastic frontier is broadcast.
-
-For example, `Normal(mu=x, sigma=1).add_plates("col")` draws a new conditional `Normal` value for each `"col"`, but it does not resample a stochastic `x` separately for each column unless `x` itself was explicitly given that plate.
+For example, `Normal(0, 1).add_plates("col")` draws once and repeats that value
+over `"col"`, whereas `Normal(0, 1, plates="col")` draws independently for each
+column.
 
 ### 6.2 `check_plates`
 
@@ -173,12 +251,14 @@ The method requires exact set equality and returns the same expression object. I
 ### 6.3 `reduce_plates`
 
 ```python
-expr.reduce_plates(*plates, reduction=Reduction.MEAN) -> Expr
+expr.reduce_plates(*plates, reduction=REDUCTION) -> Expr
 ```
 
+`REDUCTION` is a required keyword argument; there is no default reduction.
 Every requested plate must exist and may appear only once. The result removes those plates and preserves the relative order of all remaining plates.
 
-The v0.1 `Reduction` enum contains:
+The public `reductions` module exposes canonical immutable singleton
+implementation objects:
 
 - `MEAN`;
 - `SUM`;
@@ -187,7 +267,8 @@ The v0.1 `Reduction` enum contains:
 - `PROD`;
 - `LOGSUMEXP`.
 
-Arbitrary reduction callables are not supported in v0.1.
+The concrete implementation classes remain internal. Arbitrary reduction
+callables and caller-instantiated implementations are not supported in v0.1.
 
 Convenience methods (`mean`, `sum`, `max`, `min`, `prod`, and `logsumexp`) must delegate to `reduce_plates` and must not introduce distinct IR node types.
 
@@ -198,11 +279,11 @@ Plate inference is local and recursive:
 | Node | Plate result |
 | --- | --- |
 | Constant | declared plates, empty for scalar constants |
-| Distribution | ordered union of parameter plates |
+| Distribution | explicit complete output plates, or canonical union of parameter plates when omitted |
 | UnaryOperator | child plates |
-| BinaryOperator | ordered union of left and right plates |
-| AddPlates | child plates followed by newly added plates |
-| Reduction | child plates minus reduced plates |
+| BinaryOperator | canonical union of left and right plates |
+| AddPlates | canonical union of child and newly added plates |
+| Reduction | canonical child plates minus reduced plates |
 
 Materialization accepts:
 
@@ -212,7 +293,8 @@ plate_sizes: Mapping[str, int]
 
 Every plate needed by a sampled or evaluated non-scalar node must have a strictly positive size. Extra entries may be ignored. Missing required sizes must raise `MissingPlateSizeError` before the backend is called.
 
-Before a deterministic operation or distribution request, the graph engine aligns concrete parameter axes to the expression's `plate_order`. The sampling backend receives only an unnamed output shape and already aligned values; it does not receive plate names.
+Before a deterministic operation or distribution sample, the graph engine aligns
+concrete parameter axes to the expression's canonical `plate_layout`.
 
 This named-axis alignment is required for v0.1. General tensor shape inference beyond named plate axes is not.
 
@@ -226,8 +308,13 @@ with sampling_phase("latent"):
 The context records a default phase only on distribution nodes constructed inside it. Deterministic operators and plate nodes do not store the active phase.
 
 Nested phase contexts use the innermost active phase. Exiting restores the previous phase. Phase names have no ordering or implicit precedence.
+Every phase name supplied to a context or materialization call must be a
+non-empty string and invalid names raise `PhaseError`. A bare string supplied
+as `phases` denotes one phase rather than an iterable of characters.
 
-An unphased distribution has phase `None`. `None` may be explicitly enabled through `phases=(None,)`; omitting `phases` enables every remaining named and unphased distribution.
+An unphased distribution has no phase barrier and is eligible whenever its
+dependencies are concrete. Omitting `phases` enables every remaining named
+phase; an explicit iterable enables only those named phases.
 
 ## 9. Materialization
 
@@ -237,21 +324,20 @@ The proposed signature is:
 expr.materialize(
     *,
     seed,
-    backend=None,
     plate_sizes=None,
     phases=None,
-) -> Expr
+) -> SamplingCheckpoint
 ```
 
 `phases=None` means enable every phase still present in the reachable graph. An explicit iterable enables only those phases.
 
-Phase enabling is monotonic for a returned graph. The materializer computes:
-
-```text
-enabled = prior enabled phases union requested phases
-```
-
-If an enabled distribution is blocked by an unmaterialized dependency, it remains symbolic but its phase remains enabled in the returned graph. A later materialization that clears the dependency must sample that node without requiring its phase to be named again.
+Phase enabling is monotonic in the rewritten graph. If an enabled distribution
+is blocked by an unmaterialized dependency, the current materialization run
+seed is immediately mixed with its node entropy and stored as the node's final
+sampling seed. Its phase requirement is removed before the checkpoint is
+returned. A later materialization that clears the dependency samples that node
+using the already stored seed, without requiring its phase to be named again or
+consulting the later materialization's run seed.
 
 The rewrite must:
 
@@ -261,23 +347,31 @@ The rewrite must:
 4. sample a distribution only when its phase is enabled and all parameters are concrete;
 5. replace each sampled distribution with a constant carrying its value and plate order;
 6. preserve untouched subgraphs by reference when possible;
-7. return a new root expression carrying any still-relevant enabled-phase annotation.
+7. return a `SamplingCheckpoint` around the rewritten root.
 
 The original graph must remain unchanged.
 
 ### 9.1 `pending_phases`
 
-`pending_phases` is computed from reachable distribution nodes that have not become constants. It includes `None` when unphased distributions remain.
+`pending_phases` is computed from named phase requirements on reachable
+distribution nodes that have not become constants. Unphased nodes are not
+pending on a barrier.
 
 ### 9.2 `realize`
 
 ```python
-expr.realize(*, seed, backend=None, plate_sizes=None) -> Value
+expr.realize(*, seed, plate_sizes=None) -> ConcreteValue
 ```
 
-`realize` enables all remaining phases, fully materializes the graph, verifies that no distribution node remains, and returns the root concrete value. A failure to reach a concrete root raises `UnrealizedGraphError`.
+`realize` enables all remaining phases, fully materializes the graph, verifies
+that no distribution node remains, and returns the root concrete value. A raw
+expression tree whose `has_value` property is already true may be evaluated
+directly without first creating a checkpoint. A failure to reach a concrete
+root raises `UnrealizedGraphError`.
 
-`value()` performs extraction only. It never samples and raises `UnrealizedGraphError` unless the root is already concrete.
+`value()` exists only on `SamplingCheckpoint`. It performs extraction only,
+never samples, and raises `UnrealizedGraphError` unless materialization has
+collapsed the checkpoint root to a constant.
 
 ### 9.3 Branching and repeatability
 
@@ -294,78 +388,151 @@ Different seeds intentionally resample remaining nodes. Reusing seed `20` must r
 
 ## 10. RNG addressing
 
-The graph layer derives one opaque RNG key per distribution draw from:
+RNG addressing has three deliberately separate inputs:
 
-- the caller-provided materialization seed;
-- the distribution's explicit `rng_name`, when present, otherwise its canonical graph address;
-- the indices of all active plates for that draw.
+1. the projected graph-structure hash;
+2. an optional user-facing `rng_label`, mixed in as additional entropy;
+3. one run seed selected when a materialization invocation begins.
+
+For each distribution, materialization computes:
+
+```text
+node_entropy = H_v0.1(graph_structure_hash, rng_label-or-no-label)
+sampling_seed = H_v0.1(run_seed, node_entropy)
+```
+
+The node entropy is stamped when the raw expression first becomes a checkpoint.
+The sampling seed is stored when the distribution's phase is enabled, whether
+or not its dependencies are ready in that pass. Vectorized plate draws consume
+one NumPy generator initialized from that stored sampling seed.
+
+When the caller omits the run seed, the implementation selects it from
+operating-system entropy rather than mutable process-global RNG state.
+
+The optional label never overrides the graph contribution. Consequently,
+reusing a label cannot accidentally couple distinct distribution nodes.
 
 The derivation must be stable across process runs and must not use Python's randomized `hash()`.
 
+### 10.1 Stochastic-only graph projection
+
+Only distribution nodes consume RNG state. Hash resolution therefore contracts
+constants, operators, plate nodes, and reductions into paths between
+distribution nodes. For each distribution `v`:
+
+- `D(v)` hashes its distribution type, complete output plate layout, and the
+  nearest upstream stochastic nodes for every named parameter;
+- every projected input edge retains its parameter name and repeated-use
+  multiplicity, so consuming one node twice differs from consuming it once;
+- `C(v)` hashes the sorted multiset of direct stochastic consumers of `v`,
+  using each consumer's dependency hash, parameter name, and multiplicity;
+- `E(v)` canonically enumerates separately allocated nodes with identical
+  `(D, C)` context;
+- the final graph hash is `H_v0.1(D(v), C(v), E(v))`.
+
+The root contributes synthetic output-consumer edges for its stochastic
+frontier. Dependency names are canonicalized lexicographically; allocation IDs
+are used only for in-process memoization and never enter a digest.
+
+Deterministic operator kinds, constant values, deterministic plate operations,
+phase metadata, and RNG labels intentionally do not affect the graph-structure
+hash. A distribution's complete output plate layout does affect it. Labels are
+mixed only afterward when deriving node entropy.
+
 Required behavior:
 
-- repeated materialization with the same graph, seed, sizes, and backend is reproducible;
+- repeated materialization with the same graph, seed, and sizes is reproducible;
 - constructing unrelated graphs does not perturb existing draws;
 - graph sharing results in one shared sampled value;
 - distinct distribution nodes result in distinct draw addresses, even when their parameters are structurally identical;
 - reordering or otherwise changing the reachable graph may change unnamed addresses and is considered a structural change;
-- explicit `rng_name` values provide stability across such refactors when their stochastic meaning is intended to remain fixed.
+- changing deterministic details between the same stochastic boundaries need
+  not change graph-derived entropy;
+- an `rng_label` supplements but never replaces structural uniqueness.
 
-## 11. Backend contract
+## 11. Numeric execution
 
-```python
-class SamplingBackend(Protocol):
-    def sample(self, request: SampleRequest, *, rng_key: RNGKey) -> Value: ...
-```
+v0.1 stores concrete values as NumPy arrays and implements distribution sampling
+with `numpy.random.Generator`. Canonical numeric storage remains fixed-width:
+integers must be losslessly representable as `np.int64`, and floating values
+are stored as `np.float64`. Values outside the canonical integer range must be
+rejected rather than wrapped. A public backend protocol is deliberately omitted.
+JAX and PyTorch integration may be reconsidered after the graph and
+materialization model has been validated.
 
-`SampleRequest` contains:
-
-- a `DistributionKind` enum value;
-- concrete, plate-aligned parameters;
-- an unnamed output shape.
-
-The backend must not inspect an expression graph and must not receive plate names, phases, or validation metadata.
-
-v0.1 implementation work will provide one `NumPyBackend`. JAX and PyTorch backends are future work and are not stubbed as promised deliverables.
+Runtime modules contain the public type annotations and the wheel ships
+`py.typed`; no `.pyi` files are part of the v0.1 package. Public imports,
+documentation, runtime behavior, and static-consumer checks must describe the
+same surface.
 
 ## 12. Structural equality
 
-`Expr.__eq__` and `Expr.structurally_equal` perform exact graph comparison. They must compare:
+`RandomVariable.__eq__` and `RandomVariable.structurally_equal` perform
+computation-structure comparison. They compare:
 
 - node families and operator/distribution kinds;
 - ordered arguments and constant values;
-- plate names and `plate_order`;
-- phase and `rng_name` metadata;
-- enabled-phase annotations that can affect future materialization;
-- DAG aliasing topology.
+- canonical plate layouts.
 
-Equality must preserve aliasing. A graph that uses the same distribution node twice is not equal to a graph containing two distinct, structurally identical distribution nodes.
+Structural equality intentionally ignores allocation identity, aliasing, phases,
+RNG labels, graph-derived node entropy, and bound sampling seeds. It answers whether the same
+deterministic computation and distribution structure is represented.
+
+`SamplingCheckpoint.stochastically_equal` compares the checkpoint's current
+rewritten state. It first requires structural equality and then compares
+relevant plate sizes, remaining phase requirements, graph-derived node entropy,
+and any already bound sampling seeds. Unresolved distributions therefore retain
+their stochastic provenance: a shared distribution used twice is not
+stochastically equal to two independently allocated distributions.
+
+Successfully sampled distributions have become constants. Their historical
+provenance is intentionally not retained, so fully materialized checkpoints
+with identical constant values and plate sizes are stochastically equal even if
+different source graphs or run seeds produced those values. To compare
+provenance, place distributions in phases and create checkpoints with no phases
+enabled before calling `stochastically_equal`.
 
 Equality is not algebraic: `x + y` need not equal `y + x`, and no simplification such as `x + 0 == x` is performed.
 
-Backend arrays require backend-aware exact value comparison. Approximate numeric comparison is outside structural equality and outside v0.1.
+Concrete NumPy arrays use exact value comparison. Approximate numeric comparison
+is outside structural equality and outside v0.1.
+
+Structural comparison memoizes pairs of node identities while traversing the
+two DAGs. Sharing remains semantically ignored, but a shared subgraph pair is
+not compared repeatedly.
 
 ## 13. Errors
 
-The public error hierarchy is:
+The documented error hierarchy under `stoch_ir.errors` is:
 
 ```text
-StochasticProgrammingError
+StochIRError
 ├── GraphValidationError
-│   ├── DuplicateRNGNameError
-│   └── GraphCycleError
+│   ├── GraphCycleError
+│   └── RngLabelError
 ├── PlateError
 │   ├── DuplicatePlateError
 │   ├── PlateExpectationError
 │   ├── UnknownPlateError
-│   └── MissingPlateSizeError
+│   ├── MissingPlateSizeError
+│   └── PlateSizeMismatchError
 ├── PhaseError
 ├── MaterializationError
-│   ├── BackendError
 │   └── UnrealizedGraphError
+└── ValueValidationError
+    └── InvalidSupportError
+```
+
+Warnings have a separate hierarchy:
+
+```text
+StochIRWarning
+└── PossibleInvalidSupportWarning
 ```
 
 Errors should report the relevant node, requested operation, expected state, and actual state where applicable.
+Internal dependency-rewrite and RNG-lifecycle failures are not public
+extension contracts.
 
 ## 14. Explicit non-goals
 
@@ -387,14 +554,15 @@ v0.1 excludes:
 
 ```python
 with sampling_phase("latent"):
-    x = Normal(0.0, 1.0, rng_name="x").add_plates("row")
+    x = Normal(0.0, 1.0, plates="row", rng_label="x")
 
 with sampling_phase("observation"):
     y = Normal(
         mu=x,
         sigma=1.0,
-        rng_name="y",
-    ).add_plates("col", expect=("row",))
+        plates=("row", "col"),
+        rng_label="y",
+    )
 
 z = y.mean("col").check_plates("row")
 

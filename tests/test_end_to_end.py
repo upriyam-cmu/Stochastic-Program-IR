@@ -1,0 +1,161 @@
+import runpy
+import sys
+
+import numpy as np
+
+from stoch_ir import (
+    Bernoulli,
+    Normal,
+    Uniform,
+    constant,
+    sampling_phase,
+)
+from stoch_ir.examples.bernoulli_trials import (
+    build_model as build_bernoulli_model,
+)
+from stoch_ir.examples.bernoulli_trials import (
+    run as run_bernoulli,
+)
+from stoch_ir.examples.hierarchical_gaussian import (
+    build_model as build_gaussian_model,
+)
+from stoch_ir.examples.hierarchical_gaussian import (
+    run as run_gaussian,
+)
+from stoch_ir.examples.matrix_product import (
+    build_model as build_matrix_product,
+)
+from stoch_ir.examples.matrix_product import (
+    run as run_matrix_product,
+)
+
+
+def test_hierarchical_row_column_gaussian_example() -> None:
+    model = build_gaussian_model()
+    value = run_gaussian(seed=10)
+
+    assert model.plate_layout.plates == ("row",)
+    assert value.layout.plates == ("row",)
+    assert value.data.shape == (4,)
+    assert np.all(np.isfinite(value.data))
+
+
+def test_fixed_latent_can_feed_independently_resampled_observations() -> None:
+    with sampling_phase("latent"):
+        latent = Normal(0, 1, plates="row")
+    with sampling_phase("observation"):
+        observations = Normal(
+            latent,
+            1,
+            plates=("row", "replicate"),
+        )
+
+    fixed = observations.materialize(
+        seed=10,
+        phases=("latent",),
+        plate_sizes={"row": 4, "replicate": 32},
+    )
+    first = fixed.realize(seed=20)
+    second = fixed.realize(seed=21)
+    repeated = fixed.realize(seed=20)
+
+    assert fixed.pending_phases == frozenset({"observation"})
+    assert not np.array_equal(first.data, second.data)
+    np.testing.assert_array_equal(first.data, repeated.data)
+
+
+def test_grouped_uniform_bernoulli_example() -> None:
+    model = build_bernoulli_model()
+    rates = run_bernoulli(seed=4)
+
+    assert model.plate_layout.plates == ("group",)
+    assert rates.data.shape == (4,)
+    assert np.all((rates.data >= 0) & (rates.data <= 1))
+
+
+def test_independent_graph_allocations_and_aliasing_equality() -> None:
+    expected = Normal(0, 1) + Normal(0, 1)
+    generated = Normal(0, 1) + Normal(0, 1)
+    source = Normal(0, 1)
+    shared = source + source
+
+    expected_checkpoint = expected.materialize(seed=8, phases=())
+    generated_checkpoint = generated.materialize(seed=8, phases=())
+    shared_checkpoint = shared.materialize(seed=8, phases=())
+
+    assert expected.structurally_equal(generated)
+    assert expected_checkpoint.stochastically_equal(generated_checkpoint)
+    assert shared.structurally_equal(expected)
+    assert not shared_checkpoint.stochastically_equal(expected_checkpoint)
+
+
+def test_named_numpy_constants_feed_stochastic_graph() -> None:
+    low = constant(np.array([0.1, 0.4]), plates=("group",))
+    high = constant(np.array([0.2, 0.9]), plates=("group",))
+    probability = Uniform(low, high)
+    trials = Bernoulli(probability, plates=("group", "trial"))
+
+    value = trials.realize(
+        seed=9,
+        plate_sizes={"group": 2, "trial": 8},
+    )
+
+    assert value.layout.plates == ("group", "trial")
+    assert value.data.shape == (2, 8)
+
+
+def test_named_plate_matrix_product_uses_explicit_contraction() -> None:
+    model = build_matrix_product()
+    value = run_matrix_product(seed=3)
+
+    assert model.plates == ("col", "row")
+    assert value.plates == ("col", "row")
+    assert value.shape == (4, 2)
+    assert np.all(np.isfinite(value.data))
+
+
+def test_named_constant_matrix_product_matches_numpy() -> None:
+    left_data = np.arange(6.0).reshape(2, 3)
+    right_data = np.arange(12.0).reshape(3, 4)
+    left = constant(left_data, plates=("row", "inner"))
+    right = constant(right_data, plates=("inner", "col"))
+
+    value = (
+        (left * right)
+        .sum("inner")
+        .realize(
+            plate_sizes={"row": 2, "inner": 3, "col": 4},
+        )
+    )
+
+    assert value.plates == ("col", "row")
+    np.testing.assert_array_equal(value.data, (left_data @ right_data).T)
+
+
+def test_example_modules_are_directly_executable(capsys) -> None:
+    sys.modules.pop(
+        "stoch_ir.examples.hierarchical_gaussian",
+        None,
+    )
+    sys.modules.pop(
+        "stoch_ir.examples.bernoulli_trials",
+        None,
+    )
+    sys.modules.pop(
+        "stoch_ir.examples.matrix_product",
+        None,
+    )
+    runpy.run_module(
+        "stoch_ir.examples.hierarchical_gaussian",
+        run_name="__main__",
+    )
+    runpy.run_module(
+        "stoch_ir.examples.bernoulli_trials",
+        run_name="__main__",
+    )
+    runpy.run_module(
+        "stoch_ir.examples.matrix_product",
+        run_name="__main__",
+    )
+
+    assert capsys.readouterr().out

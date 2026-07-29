@@ -1,51 +1,80 @@
-# Stochastic Programming Library
+# Stochastic Program IR
 
-> Status: v0.1 API and design specification only. The package is not implemented yet.
+> Status: v0.1 alpha. The public API is still allowed to change.
 
-Stochastic Programming Library is a graph-first Python API for authoring stochastic programs that are easy to read, compare, validate, and realize in stages.
+Stochastic Program IR is a small, immutable random-variable algebra for writing
+forward-sampling programs that read like ordinary mathematical array code.
+Named plates replace positional shape reasoning; explicit reductions replace
+hidden contractions; staged materialization replaces mutable RNG state.
+Features whose semantics cannot be understood locally—especially arbitrary
+indexing—are intentionally excluded.
 
-The central idea is to preserve stochastic intent in the program itself. Distribution dependencies remain symbolic, independent replication is expressed with named plates, and sampling is grouped into phases that can be materialized independently. This makes important relationships visible to both human readers and code-generating agents instead of hiding them behind mutable RNG state and positional tensor axes.
+The project is designed for simulations, generators, and agent-authored
+stochastic programs where probabilistic structure should remain easy to read,
+compare, and validate. It performs forward sampling only; it is not a Bayesian
+inference framework.
 
-The project is deliberately not a probabilistic inference framework. v0.1 is aimed at simulations, generators, and other forward-sampling programs where structural correctness and reproducibility matter.
+## Why an IR?
 
-## What the API is designed to make explicit
+“IR” describes the immutable expression graph that the API constructs. The
+graph preserves:
 
-- which values are sampled and which expressions are deterministic;
-- which samples are shared and which are independently replicated;
-- which named plates are added, preserved, checked, or reduced;
-- which phase of a program may be sampled at each materialization step;
-- whether two programs have the same graph structure, including shared-node relationships;
-- how to freeze an early phase and resample later phases from it.
+- which values are sampled and which operations are deterministic;
+- which distribution output plates receive conditionally independent draws;
+- where existing values are broadcast over new plates;
+- which named plates are preserved, checked, or reduced;
+- which sampling phase owns each unresolved distribution;
+- structural equality independently from resolved stochastic sharing; and
+- partially materialized values without mutable runtime sessions.
 
-## Proposed v0.1 API
+The name does not imply that v0.1 includes serialization, optimization passes,
+compilation, or multiple numeric backends.
+
+## Installation
+
+Stochastic Program IR requires Python 3.10 or newer:
+
+```console
+pip install stoch-ir
+```
+
+The public API is still in alpha. Pin the exact prerelease when reproducibility
+matters:
+
+```console
+pip install "stoch-ir==0.1.0a1"
+```
+
+## Quick start
 
 ```python
-from stochastic_programming_library import (
-    Normal,
-    sampling_phase,
-    softplus,
-)
+from stoch_ir import Normal, sampling_phase, softplus
 
 with sampling_phase("latent"):
-    weights = Normal(0.0, 1.0, rng_name="weights").add_plates("layer")
+    weights = Normal(
+        0.0,
+        1.0,
+        plates="layer",
+        rng_label="weights",
+    )
 
 with sampling_phase("observation"):
     activations = Normal(
         mu=weights,
         sigma=softplus(weights) + 0.1,
-        rng_name="activations",
-    ).add_plates("batch", expect=("layer",))
+        plates=("layer", "batch"),
+        rng_label="activations",
+    )
 
-layer_score = (
-    activations
-    .mean("batch")
-    .check_plates("layer")
-)
+layer_score = activations.mean("batch").check_plates("layer")
 ```
 
-`add_plates(..., expect=...)` combines an exact precondition with an explicit stochastic transformation. The example states that `activations` already varies over `"layer"`, verifies that claim, and then introduces independent samples over `"batch"`.
+The distribution's `plates=` argument is its complete output layout. Its
+parameters may use any subset of that layout, so `weights` is shared across
+`"batch"` while `activations` receives a conditionally independent draw at
+every `("layer", "batch")` coordinate.
 
-The same graph can be materialized in phases:
+The same graph can be realized in stages:
 
 ```python
 sizes = {"layer": 8, "batch": 32}
@@ -56,61 +85,157 @@ fixed_latent = layer_score.materialize(
     plate_sizes=sizes,
 )
 
-sample_a = fixed_latent.realize(seed=200, plate_sizes=sizes)
-sample_b = fixed_latent.realize(seed=201, plate_sizes=sizes)
+sample_a = fixed_latent.realize(seed=200)
+sample_b = fixed_latent.realize(seed=201)
 ```
 
-`fixed_latent` is another immutable expression graph. Sampled latent nodes have been replaced by constants; observation nodes remain symbolic. The two calls reuse the embedded latent values while intentionally drawing different observation values. Reusing the same seed reproduces the same result.
+`fixed_latent` is an opaque immutable checkpoint. Its latent draws have become
+constants, while its observation draws remain symbolic. Branching from that
+checkpoint reuses the latent values and resamples only the remaining
+uncertainty.
 
-## Core model
+## Explicit contractions
 
-The v0.1 graph has six node families:
-
-1. constants;
-2. distributions;
-3. unary operators;
-4. binary operators;
-5. plate introduction;
-6. plate reduction.
-
-The public plate operations are intentionally small:
-
-- `add_plates(*new, expect=None)` introduces independent replication. If `expect` is supplied, the current plates must match it exactly before the new plates are added.
-- `check_plates(*expected)` validates the exact current plate set and returns the unchanged expression.
-- `reduce_plates(*plates, reduction=...)` removes plates through a named aggregation.
-- `mean`, `sum`, `max`, `min`, `prod`, and `logsumexp` are convenience methods over `reduce_plates`.
-
-Plate identifiers are strings. Their sizes are deliberately not stored in the symbolic graph; a `plate_sizes` mapping supplies concrete extents when a graph is materialized.
-
-## Structural equality
-
-Expression equality is intended for exact structural verification, not algebraic equivalence. It compares node kinds, arguments, plates, phases, RNG names, and graph topology. In particular, it distinguishes a shared sample used twice from two separate but textually identical samples.
+Named alignment makes familiar array operations readable without positional
+axis bookkeeping. For example, a matrix product is elementwise multiplication
+followed by an explicit reduction:
 
 ```python
-x = Normal(0.0, 1.0, rng_name="x")
+from stoch_ir import Normal
 
-shared = x + x
-independent = (
-    Normal(0.0, 1.0, rng_name="left")
-    + Normal(0.0, 1.0, rng_name="right")
-)
+# left varies over {"row", "inner"}
+left = Normal(0.0, 1.0, plates=("row", "inner"))
 
-assert shared != independent
+# right varies over {"inner", "col"}
+right = Normal(0.0, 1.0, plates=("inner", "col"))
+
+product = (left * right).sum("inner").check_plates("row", "col")
 ```
 
-This exactness is intentional: the library is designed to test whether a hand-written or agent-generated stochastic program represents the expected dependency graph.
+This replaces an implicit `left @ right` contraction with source code that
+names the contracted plate. The missing `@` operator is therefore not a
+capability gap in v0.1: the primitive expression is more explicit about the
+stochastic and array structure.
 
-## Backend boundary
+## Distributions and concrete inputs
 
-The graph engine owns symbolic structure, plate alignment, phase handling, deterministic RNG-key derivation, and immutable materialization. A backend only receives a concrete distribution request and an opaque RNG key, and returns a value. The first implementation target is NumPy; JAX and PyTorch are outside the v0.1 deliverable.
+v0.1 includes normal, arbitrary-bound continuous uniform, and Bernoulli draws:
 
-## Project documents
+```python
+from stoch_ir import Bernoulli, Uniform, sampling_phase
 
-- [v0.1 specification](specs/specification-v0.1.md)
-- [v0.1 implementation plan](docs/implementation-plan-v0.1.md)
-- [public API contract](docs/api-v0.1.md)
-- Type-level API stubs live in [`src/stochastic_programming_library`](src/stochastic_programming_library).
+with sampling_phase("probability"):
+    probability = Uniform(plates="group")
 
-## v0.1 boundaries
+with sampling_phase("trial"):
+    trial = Bernoulli(
+        probability,
+        plates=("group", "trial"),
+    )
 
-The MVP does not include inference, autodiff, JIT compilation, graph optimization, serialization, visualization, arbitrary user-defined distributions or reductions, or backend-specific acceleration. Those features are intentionally excluded until the core authoring and verification model has been validated.
+rate = trial.mean("trial").check_plates("group")
+```
+
+Existing NumPy values enter through one explicit boundary:
+
+```python
+import numpy as np
+
+from stoch_ir import constant
+
+offset = constant(
+    np.array([0.1, 0.2], dtype=np.float32),
+    plates=("group",),
+)
+```
+
+`constant` infers Boolean, integer, or floating metadata and stores values
+canonically as `np.bool_`, `np.int64`, or `np.float64`. Complex, object, string,
+and unnamed multidimensional values are rejected. Declared plate order follows
+the input array axes; storage is transposed when necessary into canonical
+lexicographic order. A bare string such as `plates="group"` denotes one plate.
+Integer inputs and operation results outside the canonical `np.int64` range
+are rejected rather than silently wrapped.
+
+## Plate algebra
+
+Plate names are strings. Sizes are supplied only when a graph is materialized.
+The public operations are deliberately small:
+
+- distribution `plates=` declares the complete conditionally independent
+  sampling layout;
+- `add_plates(*new, expect=None)` broadcasts an existing value over new plates;
+- `check_plates(*expected)` validates the complete plate set;
+- `reduce_plates(*plates, reduction=REDUCTION)` explicitly contracts plates
+  with a required reduction argument; and
+- `mean`, `sum`, `max`, `min`, `prod`, and `logsumexp` provide named
+  convenience reductions.
+
+`expr.plates` returns the canonical lexicographic tuple used to align concrete
+array axes. Contract methods accept plate names in any order.
+
+## Structural and stochastic equality
+
+Expression equality compares exact computation structure—not numerical,
+algebraic, or absolute probabilistic equivalence. It intentionally ignores
+object aliasing and unresolved randomness:
+
+```python
+from stoch_ir import Normal, sampling_phase
+
+with sampling_phase("draw"):
+    x = Normal(0.0, 1.0)
+
+    shared = x + x
+    independent = Normal(0.0, 1.0) + Normal(0.0, 1.0)
+
+assert shared == independent
+```
+
+Graph-derived node entropy is resolved only during materialization. The
+resulting checkpoints therefore expose `stochastically_equal`, which also
+checks stochastic sharing and resolved RNG state:
+
+```python
+shared_checkpoint = shared.materialize(seed=1, phases=())
+independent_checkpoint = independent.materialize(seed=1, phases=())
+
+assert not shared_checkpoint.stochastically_equal(independent_checkpoint)
+```
+
+This compares unresolved stochastic provenance in the checkpoints. Once draws
+are materialized into constants, their historical RNG provenance is
+intentionally discarded and equality compares the resulting values.
+
+An `rng_label` supplements graph-derived entropy but never replaces it or opts
+distinct nodes into shared randomness.
+
+## Intentional v0.1 boundaries
+
+The project intentionally excludes arbitrary indexing, positional-axis
+operations, hidden contractions, mutable RNG sessions, probabilistic inference,
+autodiff, JIT compilation, serialization, graph optimization, custom nodes or
+reductions, and alternate numeric backends.
+
+v0.1 uses NumPy internally. Conversion to other array libraries belongs at the
+API boundary.
+
+## Documentation and development
+
+- [Documentation site](https://upriyam-cmu.github.io/Stochastic-Program-IR/)
+- [Getting started](https://upriyam-cmu.github.io/Stochastic-Program-IR/getting-started.html)
+- [v0.1 specification](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/specs/specification-v0.1.md)
+- [Public API contract](https://upriyam-cmu.github.io/Stochastic-Program-IR/api-v0.1.html)
+- [Hashing and materialization architecture](https://upriyam-cmu.github.io/Stochastic-Program-IR/graph-hashing-and-materialization.html)
+- [Contributor guide](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CHANGELOG.md)
+
+The package ships inline annotations with `py.typed`. CI checks Ruff, ty, tests
+on Python 3.10, 3.11, and the latest supported Python, with warnings treated as
+errors and a 95% branch-coverage floor. It also checks built-wheel imports and
+the documentation site.
+
+## License
+
+Stochastic Program IR is distributed under the
+[BSD 3-Clause License](https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/LICENSE).

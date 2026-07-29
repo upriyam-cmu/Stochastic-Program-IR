@@ -1,14 +1,76 @@
 [project]
-name = "stochastic-programming-library"
-version = "0.1.0"
-description = "A graph-first authoring and staged-realization model for stochastic programs"
+name = "stoch-ir"
+version = "0.1.0a1"
+description = "A structural intermediate representation for stochastic programs"
 readme = "README.md"
 authors = [
     { name = "Utkarsh Priyam" }
 ]
+keywords = [
+    "monte carlo",
+    "random variables",
+    "simulation",
+    "stochastic programming",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "numpy>=2.2.6",
+    "typing-extensions>=4.16.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/upriyam-cmu/Stochastic-Program-IR"
+Documentation = "https://upriyam-cmu.github.io/Stochastic-Program-IR/"
+Issues = "https://github.com/upriyam-cmu/Stochastic-Program-IR/issues"
+Changelog = "https://github.com/upriyam-cmu/Stochastic-Program-IR/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.0",
+    "ty>=0.0.14",
+]
+docs = [
+    "furo>=2024.8.6",
+    "myst-parser>=4.0.1",
+    "sphinx>=7.4.7,<8.2.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.coverage.run]
+branch = true
+source = ["stoch_ir"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "@abstractmethod",
+    "if TYPE_CHECKING:",
+    "raise AssertionError\\(f?\"unreachable",
+]
