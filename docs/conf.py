@@ -4,6 +4,7 @@ from importlib.metadata import version as distribution_version
 
 project = "Stochastic Program IR"
 author = "Utkarsh Priyam"
+copyright = "2026, Utkarsh Priyam"
 release = distribution_version("stoch-ir")
 version = release
 

@@ -6,11 +6,17 @@ readme = "README.md"
 authors = [
     { name = "Utkarsh Priyam" }
 ]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.2.6",
     "typing-extensions>=4.16.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/upriyam-cmu/Stochastic-Program-IR"
+Documentation = "https://upriyam-cmu.github.io/Stochastic-Program-IR/"
 
 [dependency-groups]
 dev = [

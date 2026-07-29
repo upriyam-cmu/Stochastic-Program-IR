@@ -1,4 +1,4 @@
-from importlib.metadata import version
+from importlib.metadata import metadata, version
 from types import MappingProxyType
 
 import stoch_ir
@@ -18,6 +18,20 @@ from stoch_ir import (
 
 def test_runtime_version_uses_distribution_metadata() -> None:
     assert stoch_ir.__version__ == version("stoch-ir")
+
+
+def test_distribution_metadata_declares_bsd_license() -> None:
+    package_metadata = metadata("stoch-ir")
+
+    assert package_metadata["License-Expression"] == "BSD-3-Clause"
+    assert package_metadata.get_all("License-File") == ["LICENSE"]
+
+
+def test_distribution_metadata_declares_project_urls() -> None:
+    assert metadata("stoch-ir").get_all("Project-URL") == [
+        "Homepage, https://github.com/upriyam-cmu/Stochastic-Program-IR",
+        "Documentation, https://upriyam-cmu.github.io/Stochastic-Program-IR/",
+    ]
 
 
 def test_top_level_api_is_curated() -> None:

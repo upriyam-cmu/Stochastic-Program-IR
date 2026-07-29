@@ -28,3 +28,8 @@ api-v0.1
 graph-hashing-and-materialization
 implementation-plan-v0.1
 ```
+
+## License
+
+Stochastic Program IR is distributed under the
+[BSD 3-Clause License](https://opensource.org/license/bsd-3-clause).

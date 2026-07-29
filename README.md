@@ -216,3 +216,8 @@ API boundary.
 The package ships inline annotations with `py.typed`. CI checks Ruff, ty, tests
 with a 95% branch-coverage floor, built-wheel imports, and the documentation
 site.
+
+## License
+
+Stochastic Program IR is distributed under the
+[BSD 3-Clause License](LICENSE).
