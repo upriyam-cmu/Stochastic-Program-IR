@@ -37,12 +37,16 @@ latest supported Python.
 
 ## Release checklist
 
+The complete Trusted Publishing setup and release procedure is documented in
+[Publishing releases](https://upriyam-cmu.github.io/Stochastic-Program-IR/releasing.html).
+
 Before tagging a release:
 
 1. Update the version in `pyproject.toml` and move the changelog entry from
    `Unreleased` to the release date.
 2. Confirm all required CI checks pass on `main`.
 3. Confirm the GitHub Pages documentation matches the release.
-4. Build and inspect both distribution artifacts, then test the candidate
-   through TestPyPI in a clean environment.
-5. Create the `v<version>` tag only from the validated `main` commit.
+4. Create the `v<version>` tag only from the validated `main` commit.
+5. Inspect and install the resulting TestPyPI upload in a clean environment.
+6. Approve the protected `pypi` deployment only after validating that TestPyPI
+   upload.

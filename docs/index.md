@@ -19,6 +19,7 @@ values
 alpha-stability
 api-reference
 contributor-architecture
+releasing
 ```
 
 ```{toctree}
