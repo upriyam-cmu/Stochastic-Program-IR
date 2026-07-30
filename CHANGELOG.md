@@ -4,7 +4,7 @@ Notable changes to Stochastic Program IR are recorded here. The project follows
 semantic versioning, including prerelease identifiers while the API is in
 alpha.
 
-## 0.1.0a1 - Unreleased
+## 0.1.0a1 - 2026-07-29
 
 - Added the initial typed, immutable random-variable expression algebra.
 - Added named sampling and broadcasting plates with explicit reductions.
